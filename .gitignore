@@ -1,0 +1,43 @@
+
+# Backend
+backend/.env
+backend/media/
+backend/venv/
+backend/__pycache__/
+backend/*.pyc
+
+# Database
+db.sqlite3
+db.sqlite3-journal
+
+# Frontend
+frontend/node_modules/
+frontend/.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Environment
+.env
+.env.local
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+Thumbs.db
