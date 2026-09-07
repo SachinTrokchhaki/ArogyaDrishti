@@ -1,5 +1,7 @@
 import React from 'react';
 import "./App.css";
+import Navbar from './components/common/Navbar';
+import Footer from './components/common/Footer';
 
 const features = [
   { icon: "🔍", title: "OCR & Text Extraction", body: "Scanned pages and photographs are converted into clean, searchable report text." },
@@ -24,32 +26,8 @@ const privacy = [
 export default function App() {
   return (
     <>
-      {/* ===== HEADER / NAVBAR ===== */}
-      <header className="header">
-        <div className="container header-inner">
-          <a href="/" className="logo">
-            <span className="logo-mark">♥</span>
-            <span>
-              <span className="logo-name">ArogyaDrishti</span>
-              <br />
-              <span className="logo-sub">REPORT ANALYSIS</span>
-            </span>
-          </a>
-
-          <nav className="nav">
-            <a href="#features">Features</a>
-            <a href="#how">How it works</a>
-            <a href="#privacy">Privacy</a>
-          </nav>
-
-          <div className="header-actions">
-            <button className="btn btn-outline">Get Started</button>
-            <a href="/analyze">
-              <button className="btn btn-primary">Analyze a Report</button>
-            </a>
-          </div>
-        </div>
-      </header>
+      {/* ===== NAVBAR ===== */}
+      <Navbar />
 
       {/* ===== HERO SECTION ===== */}
       <section className="hero">
@@ -182,12 +160,7 @@ export default function App() {
       </div>
 
       {/* ===== FOOTER ===== */}
-      <footer className="footer">
-        <div className="container footer-inner">
-          <span>© {new Date().getFullYear()} ArogyaDrishti. Report analysis, not diagnosis.</span>
-          <span>Always consult a qualified doctor for medical advice.</span>
-        </div>
-      </footer>
+      <Footer />
     </>
   );
 }

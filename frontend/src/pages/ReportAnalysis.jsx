@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import Navbar from '../components/common/Navbar';
+import Footer from '../components/common/Footer';
 import FileUpload from '../components/FileUpload';
 import ProcessingPipeline from '../components/ProcessingPipeline';
 import ResultsDisplay from './ResultsDisplay';
@@ -36,26 +38,8 @@ const ReportAnalysis = () => {
 
     return (
         <div className="report-analysis-page">
-            {/* Header */}
-            <header className="analysis-header">
-                <div className="container header-inner">
-                    <a href="/" className="logo">
-                        <span className="logo-mark">♥</span>
-                        <span>
-                            <span className="logo-name">ArogyaDrishti</span>
-                            <br />
-                            <span className="logo-sub">REPORT ANALYSIS</span>
-                        </span>
-                    </a>
-
-                    <div className="header-actions">
-                        <button className="btn btn-outline">Get Started</button>
-                        <a href="/analyze">
-                            <button className="btn btn-primary">Analyze a Report</button>
-                        </a>
-                    </div>
-                </div>
-            </header>
+            {/* ===== NAVBAR ===== */}
+            <Navbar />
 
             {/* Main Content */}
             <div className="analysis-main">
@@ -128,13 +112,8 @@ const ReportAnalysis = () => {
                 </div>
             </div>
 
-            {/* Footer */}
-            <footer className="footer">
-                <div className="container footer-inner">
-                    <span>© {new Date().getFullYear()} ArogyaDrishti. Report analysis, not diagnosis.</span>
-                    <span>Always consult a qualified doctor for medical advice.</span>
-                </div>
-            </footer>
+            {/* ===== FOOTER ===== */}
+            <Footer />
         </div>
     );
 };
