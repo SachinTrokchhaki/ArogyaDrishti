@@ -1,7 +1,9 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import "./App.css";
 import Navbar from './components/common/Navbar';
 import Footer from './components/common/Footer';
+import { useAuth } from './context/AuthContext';
 
 const features = [
   { icon: "🔍", title: "OCR & Text Extraction", body: "Scanned pages and photographs are converted into clean, searchable report text." },
@@ -24,6 +26,21 @@ const privacy = [
 ];
 
 export default function App() {
+  const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+
+  const handleAnalyzeClick = () => {
+    if (isAuthenticated) {
+      navigate('/analyze');
+    } else {
+      navigate('/login');
+    }
+  };
+
+  const handleGetStartedClick = () => {
+    navigate('/login');
+  };
+
   return (
     <>
       {/* ===== NAVBAR ===== */}
@@ -40,10 +57,20 @@ export default function App() {
               easy-to-understand explanations.
             </p>
             <div className="hero-actions">
-              <a href="/analyze">
-                <button className="btn btn-primary btn-lg">Analyze a Report →</button>
-              </a>
-              <button className="btn btn-outline btn-lg">Get Started</button>
+              <button 
+                className="btn btn-primary btn-lg"
+                onClick={handleAnalyzeClick}
+              >
+                Analyze a Report →
+              </button>
+              {!isAuthenticated && (
+                <button 
+                  className="btn btn-outline btn-lg"
+                  onClick={handleGetStartedClick}
+                >
+                  Get Started
+                </button>
+              )}
             </div>
             <div className="hero-notes">
               <span>✅ PDF, PNG, JPG supported</span>
@@ -153,9 +180,12 @@ export default function App() {
             <h3>Ready to read your report clearly?</h3>
             <p>Upload a report and see structured results in under a minute.</p>
           </div>
-          <a href="/analyze">
-            <button className="btn btn-accent btn-lg">Analyze a Report →</button>
-          </a>
+          <button 
+            className="btn btn-accent btn-lg"
+            onClick={handleAnalyzeClick}
+          >
+            Analyze a Report →
+          </button>
         </div>
       </div>
 
