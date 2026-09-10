@@ -1,6 +1,7 @@
 import "../styles/auth.css";
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Mail, Lock, Loader2 } from "lucide-react";
 import Navbar from "../components/common/Navbar";
 import Footer from "../components/common/Footer";
 import { useAuth } from "../context/AuthContext";
@@ -8,7 +9,7 @@ import { useAuth } from "../context/AuthContext";
 export default function Login() {
   const navigate = useNavigate();
   const { login, isAuthenticated, error: authError } = useAuth();
-  
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -23,7 +24,7 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
-    
+
     if (!email || !password) {
       setError("Please enter both email and password.");
       return;
@@ -47,12 +48,28 @@ export default function Login() {
   return (
     <>
       <Navbar />
-      <div className="auth-page">
+      <main className="auth-page">
         <div className="auth-container">
-          <div className="auth-header">
-            <h2>♥ ArogyaDrishti</h2>
-            <p>Understand Your Health Reports, Simply.</p>
-          </div>
+          <div className="auth-brand">
+  <div className="auth-logo">
+    <span className="auth-logo-mark">♥</span>
+
+    <div>
+      <div className="auth-logo-name">
+        <span className="logo-arogya">Arogya</span>
+        <span className="logo-drishti">Drishti</span>
+      </div>
+
+      <div className="auth-logo-sub">
+        REPORT ANALYSIS
+      </div>
+    </div>
+  </div>
+
+  {/* <p className="auth-brand-tagline">
+    Understand Your Health Reports, Simply.
+  </p> */}
+</div>
 
           <div className="auth-card">
             <h1 className="auth-title">Welcome back</h1>
@@ -60,9 +77,11 @@ export default function Login() {
 
             <form onSubmit={handleSubmit} className="auth-form" noValidate>
               <div className="form-group">
-                <label htmlFor="email" className="form-label">Email</label>
+                <label htmlFor="email" className="form-label">
+                  Email
+                </label>
                 <div className="input-wrapper">
-                  <span className="input-icon">✉️</span>
+                  <Mail className="input-icon" />
                   <input
                     id="email"
                     type="email"
@@ -71,15 +90,16 @@ export default function Login() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="form-input"
-                    required
                   />
                 </div>
               </div>
 
               <div className="form-group">
-                <label htmlFor="password" className="form-label">Password</label>
+                <label htmlFor="password" className="form-label">
+                  Password
+                </label>
                 <div className="input-wrapper">
-                  <span className="input-icon">🔒</span>
+                  <Lock className="input-icon" />
                   <input
                     id="password"
                     type="password"
@@ -88,7 +108,6 @@ export default function Login() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="form-input"
-                    required
                   />
                 </div>
               </div>
@@ -108,15 +127,13 @@ export default function Login() {
               </div>
 
               {(error || authError) && (
-                <div className="error-message">{error || authError}</div>
+                <p role="alert" className="error-message">
+                  {error || authError}
+                </p>
               )}
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="submit-button"
-              >
-                {loading && <span className="spinner">⟳</span>}
+              <button type="submit" disabled={loading} className="submit-button">
+                {loading ? <Loader2 className="spinner" /> : null}
                 {loading ? "Signing in…" : "Log in"}
               </button>
             </form>
@@ -133,7 +150,7 @@ export default function Login() {
             Demo build — any email and password will sign you in.
           </p>
         </div>
-      </div>
+      </main>
       <Footer />
     </>
   );

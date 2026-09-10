@@ -99,9 +99,25 @@ export default function Register() {
       <div className="auth-page">
         <div className="auth-container">
           <div className="auth-header">
-            <h2>♥ ArogyaDrishti</h2>
-            <p>Understand Your Health Reports, Simply.</p>
-          </div>
+  <div className="auth-logo">
+    <span className="auth-logo-mark">♥</span>
+
+    <div>
+      <div className="auth-logo-name">
+        <span className="logo-arogya">Arogya</span>
+        <span className="logo-drishti">Drishti</span>
+      </div>
+
+      <div className="auth-logo-sub">
+        REPORT ANALYSIS
+      </div>
+    </div>
+  </div>
+
+  <p className="auth-brand-tagline">
+    Understand Your Health Reports, Simply.
+  </p>
+</div>
 
           <div className="auth-card">
             <h1 className="auth-title">Create your account</h1>
