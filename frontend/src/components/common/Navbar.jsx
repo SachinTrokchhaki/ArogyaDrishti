@@ -48,7 +48,9 @@ export default function Navbar() {
         <Link to="/" className="logo">
           <span className="logo-mark">♥</span>
           <span>
-            <span className="logo-name">ArogyaDrishti</span>
+            <span className="logo-name">
+  <span className="logo-arogya">Arogya</span><span className="logo-drishti">Drishti</span>
+  </span>
             <br />
             <span className="logo-sub">REPORT ANALYSIS</span>
           </span>
