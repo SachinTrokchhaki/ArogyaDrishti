@@ -1,9 +1,14 @@
-import React from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import "./App.css";
 import Navbar from './components/common/Navbar';
 import Footer from './components/common/Footer';
 import { useAuth } from './context/AuthContext';
+import doctorIllustration from './assets/doctor-illustration.jpg';
+import prescriptionIcon from './assets/prescription-icon.png';
+import heartRateIcon from './assets/heart-rate-icon.png';
+import bloodPanelIcon from './assets/blood-panel-icon.png';
+import bloodTestIcon from './assets/blood-test.png';
 
 const features = [
   { icon: "🔍", title: "OCR & Text Extraction", body: "Scanned pages and photographs are converted into clean, searchable report text." },
@@ -18,6 +23,33 @@ const steps = [
   { icon: "✅", title: "Validate Results", body: "Values are checked against the report's reference ranges." },
   { icon: "💬", title: "Get Simple Explanation", body: "Read a patient-friendly summary of the findings." },
 ];
+const faqs = [
+  {
+    question: "Is my medical data secure?",
+    answer:
+      "Your medical documents are handled carefully during processing. Reports are not publicly shared with other users."
+  },
+  {
+    question: "Can it replace a real doctor?",
+    answer:
+      "No. ArogyaDrishti is designed to explain medical reports in simple language and is not a replacement for a qualified healthcare professional."
+  },
+  {
+    question: "What types of reports can I upload?",
+    answer:
+      "You can upload supported medical reports such as blood tests, prescriptions, imaging reports, and other clinical documents in PDF, PNG, or JPG format."
+  },
+  {
+    question: "How does abnormal-value detection work?",
+    answer:
+      "ArogyaDrishti compares values in your report with the reference ranges provided on the same report."
+  },
+  {
+    question: "Does ArogyaDrishti provide a diagnosis?",
+    answer:
+      "No. It provides explanations and identifies information from the report. It does not diagnose medical conditions."
+  }
+];
 
 const privacy = [
   { icon: "🔒", title: "Encrypted transfer", body: "Files move over secure connections only." },
@@ -28,6 +60,7 @@ const privacy = [
 export default function App() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const [openFaq, setOpenFaq] = useState(null);
 
   const handleAnalyzeClick = () => {
     if (isAuthenticated) {
@@ -57,14 +90,14 @@ export default function App() {
               easy-to-understand explanations.
             </p>
             <div className="hero-actions">
-              <button 
+              <button
                 className="btn btn-primary btn-lg"
                 onClick={handleAnalyzeClick}
               >
                 Analyze a Report →
               </button>
               {!isAuthenticated && (
-                <button 
+                <button
                   className="btn btn-outline btn-lg"
                   onClick={handleGetStartedClick}
                 >
@@ -78,36 +111,55 @@ export default function App() {
             </div>
           </div>
 
-          <div className="hero-preview">
-            <div className="preview">
-              <div className="preview-bar">
-                <span className="dot" style={{ background: "#e57373" }}></span>
-                <span className="dot" style={{ background: "#ffb74d" }}></span>
-                <span className="dot" style={{ background: "#66bb6a" }}></span>
-                <span className="preview-title">Blood Test Report — Analysis Complete</span>
+          <div className="hero-visual">
+            <div className="report-window">
+              <div className="report-window-bar" aria-hidden="true">
+                <span className="illustration-dot illustration-dot-red" />
+                <span className="illustration-dot illustration-dot-yellow" />
+                <span className="illustration-dot illustration-dot-green" />
               </div>
-              <div className="preview-body">
-                <div className="preview-placeholder">
-                  <span className="placeholder-icon">📋</span>
-                  <p>Click "Analyze a Report" to upload your medical document</p>
-                  <p className="placeholder-sub">Supports PDF, PNG, JPG up to 10MB</p>
-                </div>
-                <div className="preview-features">
-                  <div className="preview-feature">
-                    <span>🔍</span>
-                    <span>OCR Extraction</span>
-                  </div>
-                  <div className="preview-feature">
-                    <span>📊</span>
-                    <span>Value Validation</span>
-                  </div>
-                  <div className="preview-feature">
-                    <span>🤖</span>
-                    <span>AI Explanation</span>
-                  </div>
-                </div>
+              <div className="report-window-body">
+                <img
+                  className="doctor-image"
+                  src={doctorIllustration}
+                  alt="Medical report analysis"
+                />
               </div>
             </div>
+
+            <div className="floating-card prescription">
+              <b>PRESCRIPTION</b>
+              <span>
+                <img src={prescriptionIcon} alt="" />
+                Amoxicillin 500mg
+              </span>
+            </div>
+
+            <div className="floating-card heart-rate">
+              <b>HEART RATE</b>
+              <span>
+                <img src={heartRateIcon} alt="" />
+                72 BPM (Normal)
+              </span>
+            </div>
+
+            <div className="floating-card blood-panel">
+              <b>BLOOD PANEL</b>
+              <span>
+                <img src={bloodPanelIcon} alt="" />
+                CBC <small>Analyzed</small>
+              </span>
+            </div>
+
+            <div className="floating-card blood-test">
+              <b>BLOOD TEST</b>
+              <span>
+                <img src={bloodTestIcon} alt="" />
+                CBC Analyzed
+              </span>
+            </div>
+
+            <div className="insights-card">✦ AI Insights Generated</div>
           </div>
         </div>
       </section>
@@ -151,6 +203,40 @@ export default function App() {
         </div>
       </section>
 
+      {/* ===== FAQ SECTION ===== */}
+<section className="section faq-section" id="faq">
+  <div className="container">
+    <h2>Frequently Asked Questions</h2>
+
+    <div className="faq-list">
+      {faqs.map((faq, index) => (
+        <div
+          className={`faq-item ${openFaq === index ? "open" : ""}`}
+          key={faq.question}
+        >
+          <button
+            className="faq-question"
+            onClick={() =>
+              setOpenFaq(openFaq === index ? null : index)
+            }
+          >
+            <span>{faq.question}</span>
+            <span className="faq-arrow">
+              {openFaq === index ? "⌃" : "⌄"}
+            </span>
+          </button>
+
+          {openFaq === index && (
+            <div className="faq-answer">
+              <p>{faq.answer}</p>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
       {/* ===== PRIVACY SECTION ===== */}
       <section className="section" id="privacy">
         <div className="container privacy-grid">
@@ -180,7 +266,7 @@ export default function App() {
             <h3>Ready to read your report clearly?</h3>
             <p>Upload a report and see structured results in under a minute.</p>
           </div>
-          <button 
+          <button
             className="btn btn-accent btn-lg"
             onClick={handleAnalyzeClick}
           >
