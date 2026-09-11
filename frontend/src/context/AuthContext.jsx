@@ -10,43 +10,62 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Check if user is already logged in on mount
+  // On mount: fetch fresh profile from backend
   useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    const userData = localStorage.getItem('user');
-
-    if (token && userData) {
-      try {
-        const parsedUser = JSON.parse(userData);
-        setUser(parsedUser);
-        api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      } catch (e) {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        localStorage.removeItem('user');
+    const initAuth = async () => {
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        setLoading(false);
+        return;
       }
-    }
-    setLoading(false);
+
+      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+
+      try {
+        const response = await api.get('/auth/profile/');
+        setUser(response.data);
+        localStorage.setItem('user', JSON.stringify(response.data));
+      } catch (e) {
+        if (e.response?.status === 401) {
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+          localStorage.removeItem('user');
+          delete api.defaults.headers.common['Authorization'];
+        } else {
+          const cached = localStorage.getItem('user');
+          if (cached) {
+            try { setUser(JSON.parse(cached)); } catch {}
+          }
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initAuth();
   }, []);
 
-  // Login function
   const login = async (email, password) => {
     try {
       setError(null);
       const response = await api.post('/auth/login/', { email, password });
+      const { access, refresh } = response.data;
 
-      const { access, refresh, user } = response.data;
-
-      // Store tokens and user data
       localStorage.setItem('access_token', access);
       localStorage.setItem('refresh_token', refresh);
-      localStorage.setItem('user', JSON.stringify(user));
-
-      // Set default authorization header
       api.defaults.headers.common['Authorization'] = `Bearer ${access}`;
 
-      setUser(user);
-      return { success: true, user };
+      // Fetch full profile (includes avatar)
+      let fullUser = response.data.user;
+      try {
+        const profileRes = await api.get('/auth/profile/');
+        fullUser = profileRes.data;
+      } catch {}
+
+      localStorage.setItem('user', JSON.stringify(fullUser));
+      setUser(fullUser);
+
+      return { success: true, user: fullUser };
     } catch (error) {
       const errorMessage = error.response?.data?.error || 'Login failed. Please try again.';
       setError(errorMessage);
@@ -54,31 +73,33 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Register function
   const register = async (userData) => {
-  try {
-    setError(null);
+    try {
+      setError(null);
+      const response = await api.post('/auth/register/', userData);
+      const { access, refresh } = response.data;
 
-    const response = await api.post('/auth/register/', userData);
+      localStorage.setItem('access_token', access);
+      localStorage.setItem('refresh_token', refresh);
+      api.defaults.headers.common['Authorization'] = `Bearer ${access}`;
 
-    // Registration successful, but DON'T login automatically
-    return {
-      success: true,
-      user: response.data.user
-    };
+      let fullUser = response.data.user;
+      try {
+        const profileRes = await api.get('/auth/profile/');
+        fullUser = profileRes.data;
+      } catch {}
 
-  } catch (error) {
-    const errors = error.response?.data || {};
-    setError(errors);
+      localStorage.setItem('user', JSON.stringify(fullUser));
+      setUser(fullUser);
 
-    return {
-      success: false,
-      errors
-    };
-  }
-};
+      return { success: true, user: fullUser };
+    } catch (error) {
+      const errors = error.response?.data || {};
+      setError(errors);
+      return { success: false, errors };
+    }
+  };
 
-  // Logout function
   const logout = async () => {
     try {
       const refreshToken = localStorage.getItem('refresh_token');
@@ -88,7 +109,6 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      // Clear all stored data
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
       localStorage.removeItem('user');
@@ -97,13 +117,27 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const refreshUser = async () => {
+    try {
+      const response = await api.get('/auth/profile/');
+      setUser(response.data);
+      localStorage.setItem('user', JSON.stringify(response.data));
+      return response.data;
+    } catch (error) {
+      console.error('Refresh user failed:', error);
+      return null;
+    }
+  };
+
   const value = {
     user,
+    setUser,
     loading,
     error,
     login,
     register,
     logout,
+    refreshUser,
     isAuthenticated: !!user,
   };
 

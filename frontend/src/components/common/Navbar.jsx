@@ -11,9 +11,23 @@ export default function Navbar() {
     navigate('/');
   };
 
-  const getInitials = (name) => {
-    if (!name) return '?';
-    return name.charAt(0).toUpperCase();
+  const getInitials = () => {
+    if (user?.first_name && user?.last_name) {
+      return (user.first_name[0] + user.last_name[0]).toUpperCase();
+    }
+    if (user?.first_name) return user.first_name[0].toUpperCase();
+    if (user?.username) return user.username[0].toUpperCase();
+    if (user?.email) return user.email[0].toUpperCase();
+    return '?';
+  };
+
+  const getDisplayName = () => {
+    if (user?.first_name && user?.last_name) {
+      return `${user.first_name} ${user.last_name}`;
+    }
+    if (user?.first_name) return user.first_name;
+    if (user?.username) return user.username;
+    return 'User';
   };
 
   const handleAnalyzeClick = () => {
@@ -49,8 +63,8 @@ export default function Navbar() {
           <span className="logo-mark">♥</span>
           <span>
             <span className="logo-name">
-  <span className="logo-arogya">Arogya</span><span className="logo-drishti">Drishti</span>
-  </span>
+              <span className="logo-arogya">Arogya</span><span className="logo-drishti">Drishti</span>
+            </span>
             <br />
             <span className="logo-sub">REPORT ANALYSIS</span>
           </span>
@@ -71,14 +85,34 @@ export default function Navbar() {
         <div className="header-actions">
           {isAuthenticated ? (
             <div className="user-profile">
-              <button 
-                className="user-avatar"
-                onClick={() => navigate('/profile')}
-                title={user?.username || user?.email}
+              {/* Clickable user info block */}
+              <button
+                className="navbar-user-info"
+                onClick={() => navigate('/dashboard')}
+                title="Go to dashboard"
               >
-                {getInitials(user?.username || user?.email)}
+                <div className="navbar-user-avatar">
+                  {user?.avatar ? (
+                    <img
+                      src={user.avatar}
+                      alt={getDisplayName()}
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.style.display = 'none';
+                        e.target.parentNode.textContent = getInitials();
+                      }}
+                    />
+                  ) : (
+                    getInitials()
+                  )}
+                </div>
+                <div className="navbar-user-details">
+                  <span className="navbar-user-name">{getDisplayName()}</span>
+                  <span className="navbar-user-email">{user?.email}</span>
+                </div>
               </button>
-              <button 
+
+              <button
                 className="btn btn-outline btn-sm"
                 onClick={handleLogout}
               >
@@ -90,7 +124,7 @@ export default function Navbar() {
               <Link to="/login">
                 <button className="btn btn-outline">Get Started</button>
               </Link>
-              <button 
+              <button
                 className="btn btn-primary"
                 onClick={handleAnalyzeClick}
               >
