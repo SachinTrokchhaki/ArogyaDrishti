@@ -56,28 +56,27 @@ export const AuthProvider = ({ children }) => {
 
   // Register function
   const register = async (userData) => {
-    try {
-      setError(null);
-      const response = await api.post('/auth/register/', userData);
+  try {
+    setError(null);
 
-      const { access, refresh, user } = response.data;
+    const response = await api.post('/auth/register/', userData);
 
-      // Store tokens and user data
-      localStorage.setItem('access_token', access);
-      localStorage.setItem('refresh_token', refresh);
-      localStorage.setItem('user', JSON.stringify(user));
+    // Registration successful, but DON'T login automatically
+    return {
+      success: true,
+      user: response.data.user
+    };
 
-      // Set default authorization header
-      api.defaults.headers.common['Authorization'] = `Bearer ${access}`;
+  } catch (error) {
+    const errors = error.response?.data || {};
+    setError(errors);
 
-      setUser(user);
-      return { success: true, user };
-    } catch (error) {
-      const errors = error.response?.data || {};
-      setError(errors);
-      return { success: false, errors };
-    }
-  };
+    return {
+      success: false,
+      errors
+    };
+  }
+};
 
   // Logout function
   const logout = async () => {

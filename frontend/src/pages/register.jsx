@@ -79,7 +79,7 @@ export default function Register() {
       });
 
       if (result.success) {
-        navigate("/");
+        navigate("/login");
       } else {
         if (result.errors) {
           setFieldErrors(result.errors);
