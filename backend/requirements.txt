@@ -19,3 +19,6 @@ google-generativeai>=0.3.0
 
 # Data Processing
 numpy>=1.24.0
+
+# PDF Export
+reportlab>=4.0.0
