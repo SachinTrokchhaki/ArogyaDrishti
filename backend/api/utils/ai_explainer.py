@@ -2,7 +2,6 @@
 AI Explanation utility using Groq API (Free & Fast)
 """
 import os
-import json
 from dotenv import load_dotenv
 
 # Try to import groq
@@ -13,44 +12,43 @@ except ImportError:
     GROQ_AVAILABLE = False
     print("❌ Groq library not installed. Run: pip install groq")
 
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+
+try:
+    from anthropic import Anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+
 load_dotenv()
 
 class AIExplainer:
-    """Generate patient-friendly explanations using Groq AI"""
+    """Generate non-diagnostic explanations with provider failover."""
     
     def __init__(self):
-        self.api_key = os.getenv('GROQ_API_KEY')
-        self.client = None
-        self.is_available = False
-        self.model = "qwen/qwen3.8-27b"   # Free model
-        
-        if self.api_key and GROQ_AVAILABLE:
-            try:
-                self.client = Groq(api_key=self.api_key)
-                self.is_available = True
-                print("✅ Groq API initialized successfully")
-            except Exception as e:
-                print(f"❌ Groq API initialization failed: {e}")
-        elif not GROQ_AVAILABLE:
-            print("❌ Groq library not installed. Run: pip install groq")
-        else:
-            print("❌ GROQ_API_KEY not found in environment variables")
+        self.providers = []
+        if os.getenv('GEMINI_API_KEY') and GEMINI_AVAILABLE:
+            genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+            self.providers.append(('Gemini', self._call_gemini))
+        if os.getenv('ANTHROPIC_API_KEY') and ANTHROPIC_AVAILABLE:
+            self.anthropic = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+            self.providers.append(('Claude 3.5 Sonnet', self._call_claude))
+        if os.getenv('GROQ_API_KEY') and GROQ_AVAILABLE:
+            self.groq = Groq(api_key=os.getenv('GROQ_API_KEY'))
+            self.providers.append(('Groq Llama', self._call_groq))
     
     def generate_explanation(self, results, summary, patient_info=None):
         """
         Generate patient-friendly explanation from test results
         """
-        if not self.is_available:
-            return self._generate_fallback_explanation(results, summary)
-        
-        try:
-            # Prepare the data for the prompt
-            results_text = self._format_results_for_prompt(results)
-            summary_text = self._format_summary_for_prompt(summary)
-            patient_text = self._format_patient_for_prompt(patient_info)
-            
-            # Build the prompt
-            prompt = f"""
+        results_text = self._format_results_for_prompt(results)
+        summary_text = self._format_summary_for_prompt(summary)
+        patient_text = self._format_patient_for_prompt(patient_info)
+        prompt = f"""
 You are a medical AI assistant explaining lab results to a patient in simple, clear, and empathetic language.
 
 {patient_text}
@@ -87,34 +85,38 @@ Guidelines:
 
 FORMAT: Use markdown with clear headings (##, ###) and bullet points.
 """
-            
-            # Generate response using Groq
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "You are a helpful medical assistant that explains lab results in simple language."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=1000,
-            )
-            
-            explanation = response.choices[0].message.content
-            
-            return {
-                'success': True,
-                'explanation': explanation,
-                'provider': 'Groq AI (Mixtral)'
-            }
-            
-        except Exception as e:
-            print(f"AI Explanation error: {e}")
-            return {
-                'success': False,
-                'explanation': self._generate_fallback_explanation(results, summary),
-                'provider': 'Fallback (AI unavailable)',
-                'error': str(e)
-            }
+        failures = []
+        for provider_name, provider_call in self.providers:
+            try:
+                explanation = provider_call(prompt)
+                if explanation:
+                    return {'success': True, 'explanation': explanation, 'provider': provider_name,
+                            'attempted_providers': [name for name, _ in self.providers], 'failures': failures}
+            except Exception as error:
+                failures.append({'provider': provider_name, 'error': str(error)})
+
+        return {'success': False, 'explanation': self._generate_fallback_explanation(results, summary),
+                'provider': 'Local template', 'attempted_providers': [name for name, _ in self.providers],
+                'failures': failures}
+
+    def _call_gemini(self, prompt):
+        return genai.GenerativeModel('gemini-1.5-flash').generate_content(prompt).text
+
+    def _call_claude(self, prompt):
+        response = self.anthropic.messages.create(
+            model='claude-3-5-sonnet-20241022', max_tokens=1000,
+            messages=[{'role': 'user', 'content': prompt}],
+        )
+        return response.content[0].text
+
+    def _call_groq(self, prompt):
+        response = self.groq.chat.completions.create(
+            model='llama-3.3-70b-versatile',
+            messages=[{'role': 'system', 'content': 'Explain medical reports without diagnosing.'},
+                      {'role': 'user', 'content': prompt}],
+            temperature=0.3, max_tokens=1000,
+        )
+        return response.choices[0].message.content
     
     def _format_results_for_prompt(self, results):
         """Format test results for the prompt"""

@@ -34,7 +34,7 @@ class MedicalReport(models.Model):
         null=True,
         blank=True
     )
-    file = models.FileField(upload_to='reports/%Y/%m/%d/')
+    file = models.FileField(upload_to='reports/%Y/%m/%d/', null=True, blank=True)
     file_name = models.CharField(max_length=255)
     file_size = models.IntegerField()
     extracted_text = models.TextField(blank=True)

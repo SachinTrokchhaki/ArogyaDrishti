@@ -5,9 +5,10 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
-from django.core.files.storage import default_storage
-from django.core.files.base import ContentFile
 from .utils.ai_explainer import AIExplainer
+from .utils.classifier import classify_document
+from .utils.security import validate_upload, scan_for_malware
+from .utils.validation import validate_report_data
 import os
 import re
 import time
@@ -147,119 +148,71 @@ def upload_avatar(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def change_password(request):
-    """Change user password"""
-    user = request.user
+    """Change the authenticated user's password."""
     old_password = request.data.get('old_password')
-    new_password = request.data.get('new_password')
-    confirm_password = request.data.get('confirm_password')
-    
-    if not old_password or not new_password or not confirm_password:
-        return Response({'error': 'All fields are required'}, status=400)
-    
-    if not user.check_password(old_password):
-        return Response({'error': 'Current password is incorrect'}, status=400)
-    
-    if new_password != confirm_password:
-        return Response({'error': 'New passwords do not match'}, status=400)
-    
-    if len(new_password) < 8:
-        return Response({'error': 'Password must be at least 8 characters'}, status=400)
-    
-    if not re.search(r'[A-Z]', new_password):
-        return Response({'error': 'Must contain uppercase letter'}, status=400)
-    
-    if not re.search(r'[a-z]', new_password):
-        return Response({'error': 'Must contain lowercase letter'}, status=400)
-    
-    if not re.search(r'\d', new_password):
-        return Response({'error': 'Must contain a number'}, status=400)
-    
-    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', new_password):
-        return Response({'error': 'Must contain special character'}, status=400)
-    
-    user.set_password(new_password)
-    user.save()
-    
-    return Response({'message': 'Password changed successfully!'})
+    password = request.data.get('new_password')
+    password2 = request.data.get('confirm_password')
+    errors = {}
 
+    if not old_password or not request.user.check_password(old_password):
+        errors['old_password'] = ['Current password is incorrect.']
+    if not password:
+        errors['password'] = ['Password is required.']
+    elif len(password) < 8:
+        errors['password'] = ['Password must be at least 8 characters long.']
+    if password != password2:
+        errors['password2'] = ['Passwords do not match.']
+    if errors:
+        return Response(errors, status=status.HTTP_400_BAD_REQUEST)
 
-# ============================================================
-# ============ AUTHENTICATION VIEWS ============
-# ============================================================
+    request.user.set_password(password)
+    request.user.save(update_fields=['password'])
+    return Response({'message': 'Password changed successfully.'})
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register(request):
-    """Register a new user"""
-    username = request.data.get('username')
+    """Register a user and return JWT tokens."""
+    username = request.data.get('username') or request.data.get('email')
     email = request.data.get('email')
     password = request.data.get('password')
-    password2 = request.data.get('password2')
+    password2 = request.data.get('password2') or request.data.get('confirm_password')
     first_name = request.data.get('first_name', '')
     last_name = request.data.get('last_name', '')
-    
     errors = {}
-    
+
     if not username:
         errors['username'] = ['Username is required.']
-    elif User.objects.filter(username=username).exists():
-        errors['username'] = ['This username is already taken.']
-    
     if not email:
         errors['email'] = ['Email is required.']
-    elif User.objects.filter(email=email).exists():
-        errors['email'] = ['This email is already registered.']
-    
     if not password:
         errors['password'] = ['Password is required.']
-    else:
-        if len(password) < 8:
-            errors['password'] = ['Password must be at least 8 characters long.']
-        elif not re.search(r'[A-Z]', password):
-            errors['password'] = ['Password must contain at least one uppercase letter.']
-        elif not re.search(r'[a-z]', password):
-            errors['password'] = ['Password must contain at least one lowercase letter.']
-        elif not re.search(r'\d', password):
-            errors['password'] = ['Password must contain at least one number.']
-        elif not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
-            errors['password'] = ['Password must contain at least one special character.']
-    
-    if not password2:
-        errors['password2'] = ['Please confirm your password.']
-    elif password and password != password2:
+    elif len(password) < 8:
+        errors['password'] = ['Password must be at least 8 characters long.']
+    if password != password2:
         errors['password2'] = ['Passwords do not match.']
-    
+    if username and User.objects.filter(username=username).exists():
+        errors['username'] = ['A user with this username already exists.']
+    if email and User.objects.filter(email=email).exists():
+        errors['email'] = ['A user with this email already exists.']
     if errors:
         return Response(errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    try:
-        user = User.objects.create_user(
-            username=username,
-            email=email,
-            password=password,
-            first_name=first_name,
-            last_name=last_name
-        )
-        
-        refresh = RefreshToken.for_user(user)
-        
-        return Response({
-            'user': {
-                'id': user.id,
-                'username': user.username,
-                'email': user.email,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-            },
-            'refresh': str(refresh),
-            'access': str(refresh.access_token),
-            'message': 'Registration successful!'
-        }, status=status.HTTP_201_CREATED)
-        
-    except Exception as e:
-        return Response({
-            'error': f'Registration failed: {str(e)}'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    user = User.objects.create_user(
+        username=username, email=email, password=password,
+        first_name=first_name, last_name=last_name,
+    )
+    refresh = RefreshToken.for_user(user)
+    return Response({
+        'user': {
+            'id': user.id, 'username': user.username, 'email': user.email,
+            'first_name': user.first_name, 'last_name': user.last_name,
+        },
+        'refresh': str(refresh),
+        'access': str(refresh.access_token),
+        'message': 'Registration successful!',
+    }, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
@@ -587,7 +540,7 @@ def generate_follow_up(results):
 def generate_confidence(results, extracted_text):
     """Generate confidence scores based on extraction quality"""
     confidence = {
-        'ocr': 94,
+        'ocr': OCRProcessor.estimate_confidence(extracted_text),
         'extraction': 91,
         'classification': 96
     }
@@ -637,35 +590,45 @@ def upload_report(request):
     if not file:
         return Response({'error': 'No file uploaded'}, status=status.HTTP_400_BAD_REQUEST)
     
-    allowed_extensions = ['pdf', 'png', 'jpg', 'jpeg']
-    file_extension = file.name.split('.')[-1].lower()
-    
-    if file_extension not in allowed_extensions:
-        return Response(
-            {'error': f'File type not supported. Allowed: {", ".join(allowed_extensions)}'}, 
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
-    if file.size > 10 * 1024 * 1024:
-        return Response({'error': 'File too large. Maximum size: 10MB'}, status=status.HTTP_400_BAD_REQUEST)
-    
     try:
-        saved_path = default_storage.save(f'reports/{file.name}', ContentFile(file.read()))
-        file_path = default_storage.path(saved_path)
-        
-        with open(file_path, 'rb') as f:
-            from django.core.files import File
-            file_obj = File(f, name=file.name)
-            extracted_text = OCRProcessor.extract_text(file_obj)
-        
+        content = file.read()
+        valid, validation_error = validate_upload(file.name, file.content_type, content)
+        if not valid:
+            return Response({'error': validation_error}, status=status.HTTP_400_BAD_REQUEST)
+        clean, scan_message = scan_for_malware(content)
+        if not clean:
+            return Response({'error': scan_message}, status=status.HTTP_400_BAD_REQUEST)
+
+        from django.core.files import File
+        from io import BytesIO
+        file_obj = File(BytesIO(content), name=file.name)
+        extracted_text, ocr_confidence = OCRProcessor.extract_text_with_confidence(file_obj)
+        if ocr_confidence < 70:
+            return Response({
+                'error': 'Report quality is too low to analyze reliably. Please upload a clearer scan.',
+                'quality_warning': True,
+                'confidence': {'ocr': ocr_confidence},
+            }, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        classification = classify_document(extracted_text)
         processed_results = ReportProcessor.extract_medical_values(extracted_text)
         summary = ReportProcessor.get_summary(processed_results)
         patient_info = extract_patient_info(extracted_text)
-        
+        validation = validate_report_data(
+            classification['document_type'], processed_results, summary, extracted_text
+        )
+        if not validation['schema_valid']:
+            return Response({
+                'error': 'The extracted report data failed validation.',
+                'validation': validation,
+            }, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
         medications = generate_medications(processed_results)
         follow_up = generate_follow_up(processed_results)
         confidence = generate_confidence(processed_results, extracted_text)
-        
+        confidence['ocr'] = ocr_confidence
+        confidence['classification'] = classification['confidence']
+
         ai_explainer = AIExplainer()
         ai_explanation = ai_explainer.generate_explanation(
             processed_results, 
@@ -673,34 +636,41 @@ def upload_report(request):
             patient_info
         )
         
-        report = MedicalReport.objects.create(
-            file=saved_path,
-            file_name=file.name,
-            file_size=file.size,
-            extracted_text=extracted_text,
-            processed_data={
-                'results': processed_results,
-                'summary': summary,
-                'patient_info': patient_info
+        processed_data = {
+            'results': processed_results,
+            'summary': summary,
+            'patient_info': patient_info,
+            'document_type': classification['document_type'],
+            'classification': classification,
+            'validation': validation,
+            'privacy': {
+                'binary_retained': False,
+                'analysis_retained': os.getenv('REPORT_RETENTION_ENABLED', 'false').lower() == 'true',
+                'malware_scan': scan_message,
             },
-            ai_explanation=ai_explanation,
-            medications=medications,
-            follow_up=follow_up,
-            confidence=confidence,
-            user=request.user
-        )
+        }
+        report = None
+        if os.getenv('REPORT_RETENTION_ENABLED', 'false').lower() == 'true':
+            report = MedicalReport.objects.create(
+                file=None,
+                file_name=file.name,
+                file_size=file.size,
+                extracted_text=extracted_text,
+                processed_data=processed_data,
+                ai_explanation=ai_explanation,
+                medications=medications,
+                follow_up=follow_up,
+                confidence=confidence,
+                user=request.user
+            )
         
         response_data = {
-            'id': report.id,
-            'file_name': report.file_name,
-            'file_size': report.file_size,
-            'created_at': report.created_at,
+            'id': report.id if report else None,
+            'file_name': file.name,
+            'file_size': file.size,
+            'created_at': report.created_at if report else None,
             'extracted_text': extracted_text[:500] + '...' if len(extracted_text) > 500 else extracted_text,
-            'processed_data': {
-                'results': processed_results,
-                'summary': summary,
-                'patient_info': patient_info
-            },
+            'processed_data': processed_data,
             'medications': medications,
             'follow_up': follow_up,
             'confidence': confidence,
