@@ -2,3 +2,7 @@ npm install react-router-dom        # Routing (Link, Routes, useNavigate)
 npm install axios                   # HTTP requests (api service)
 npm install recharts                # Chart (Hemoglobin trend)
 npm install lucide-react            # Icons (used in login/register)
+
+for admin
+tester@test.com
+Tester@1234

@@ -5,13 +5,14 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
 from .utils.ai_explainer import AIExplainer
 from .utils.classifier import classify_document
 from .utils.security import validate_upload, scan_for_malware
 from .utils.validation import validate_report_data
 import os
 import re
-import time
 
 from .models import MedicalReport, UserProfile
 from .serializers import MedicalReportSerializer
@@ -29,6 +30,7 @@ from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 )
 from reportlab.lib.enums import TA_LEFT, TA_CENTER
+
 
 # ============================================================
 # ============ USER PROFILE VIEWS ============
@@ -78,8 +80,6 @@ def update_user_profile(request):
     if 'phone' in data:
         profile.phone = data['phone']
     
-    # Email and username are intentionally NOT updated here
-    
     user.save()
     profile.save()
     
@@ -111,7 +111,6 @@ def upload_avatar(request):
         if not avatar:
             return Response({'error': 'No avatar file provided'}, status=400)
         
-        # Validate file type
         allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
         if avatar.content_type not in allowed_types:
             return Response(
@@ -119,22 +118,18 @@ def upload_avatar(request):
                 status=400
             )
         
-        # Validate file size (5MB max)
         if avatar.size > 5 * 1024 * 1024:
             return Response({'error': 'File too large. Max 5MB'}, status=400)
         
-        # Delete old avatar file (don't fail if it doesn't exist)
         if user_profile.avatar:
             try:
                 user_profile.avatar.delete(save=False)
             except Exception:
                 pass
         
-        # Save new avatar
         user_profile.avatar = avatar
         user_profile.save()
         
-        # Build full URL with cache-busting timestamp
         avatar_url = request.build_absolute_uri(user_profile.avatar.url)
         
         return Response({
@@ -585,57 +580,74 @@ def health_check(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def upload_report(request):
-    """Upload and process a medical report"""
+    """
+    Upload and process a medical report.
+    - Validates upload
+    - Runs OCR + classification + extraction
+    - Generates AI explanation
+    - SAVES file to disk AND report to database (so user can see history)
+    """
     file = request.FILES.get('file')
     if not file:
         return Response({'error': 'No file uploaded'}, status=status.HTTP_400_BAD_REQUEST)
     
     try:
         content = file.read()
+        
+        # 1. Validate upload (size, extension, MIME, magic bytes)
         valid, validation_error = validate_upload(file.name, file.content_type, content)
         if not valid:
             return Response({'error': validation_error}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 2. Optional malware scan (disabled by default)
         clean, scan_message = scan_for_malware(content)
         if not clean:
             return Response({'error': scan_message}, status=status.HTTP_400_BAD_REQUEST)
-
+        
+        # 3. Save file to disk
+        saved_path = default_storage.save(
+            f'reports/{file.name}',
+            ContentFile(content)
+        )
+        
+        # 4. OCR extraction with confidence
         from django.core.files import File
         from io import BytesIO
         file_obj = File(BytesIO(content), name=file.name)
         extracted_text, ocr_confidence = OCRProcessor.extract_text_with_confidence(file_obj)
-        if ocr_confidence < 70:
-            return Response({
-                'error': 'Report quality is too low to analyze reliably. Please upload a clearer scan.',
-                'quality_warning': True,
-                'confidence': {'ocr': ocr_confidence},
-            }, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
-
+        
+        # 5. Classify document type
         classification = classify_document(extracted_text)
+        
+        # 6. Extract structured medical values
         processed_results = ReportProcessor.extract_medical_values(extracted_text)
         summary = ReportProcessor.get_summary(processed_results)
         patient_info = extract_patient_info(extracted_text)
+        
+        # 7. Validate report data
         validation = validate_report_data(
-            classification['document_type'], processed_results, summary, extracted_text
+            classification['document_type'],
+            processed_results,
+            summary,
+            extracted_text
         )
-        if not validation['schema_valid']:
-            return Response({
-                'error': 'The extracted report data failed validation.',
-                'validation': validation,
-            }, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
-
+        
+        # 8. Generate medications, follow-up, confidence
         medications = generate_medications(processed_results)
         follow_up = generate_follow_up(processed_results)
         confidence = generate_confidence(processed_results, extracted_text)
         confidence['ocr'] = ocr_confidence
         confidence['classification'] = classification['confidence']
-
+        
+        # 9. Generate AI explanation
         ai_explainer = AIExplainer()
         ai_explanation = ai_explainer.generate_explanation(
-            processed_results, 
-            summary, 
+            processed_results,
+            summary,
             patient_info
         )
         
+        # 10. Prepare processed_data
         processed_data = {
             'results': processed_results,
             'summary': summary,
@@ -644,31 +656,30 @@ def upload_report(request):
             'classification': classification,
             'validation': validation,
             'privacy': {
-                'binary_retained': False,
-                'analysis_retained': os.getenv('REPORT_RETENTION_ENABLED', 'false').lower() == 'true',
                 'malware_scan': scan_message,
             },
         }
-        report = None
-        if os.getenv('REPORT_RETENTION_ENABLED', 'false').lower() == 'true':
-            report = MedicalReport.objects.create(
-                file=None,
-                file_name=file.name,
-                file_size=file.size,
-                extracted_text=extracted_text,
-                processed_data=processed_data,
-                ai_explanation=ai_explanation,
-                medications=medications,
-                follow_up=follow_up,
-                confidence=confidence,
-                user=request.user
-            )
         
+        # 11. ALWAYS save to database (so user can see history)
+        report = MedicalReport.objects.create(
+            file=saved_path,
+            file_name=file.name,
+            file_size=file.size,
+            extracted_text=extracted_text,
+            processed_data=processed_data,
+            ai_explanation=ai_explanation,
+            medications=medications,
+            follow_up=follow_up,
+            confidence=confidence,
+            user=request.user
+        )
+        
+        # 12. Return full response
         response_data = {
-            'id': report.id if report else None,
+            'id': report.id,
             'file_name': file.name,
             'file_size': file.size,
-            'created_at': report.created_at if report else None,
+            'created_at': report.created_at,
             'extracted_text': extracted_text[:500] + '...' if len(extracted_text) > 500 else extracted_text,
             'processed_data': processed_data,
             'medications': medications,
@@ -680,10 +691,13 @@ def upload_report(request):
         return Response(response_data, status=status.HTTP_200_OK)
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return Response(
-            {'error': f'Processing failed: {str(e)}'}, 
+            {'error': f'Processing failed: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
 
 # ============================================================
 # ============ REPORT EXPORT VIEWS ============
@@ -702,14 +716,12 @@ def export_report_csv(request, report_id):
     results = processed.get('results', [])
     patient_info = processed.get('patient_info', {})
     
-    # Create CSV
     response = HttpResponse(content_type='text/csv')
     filename = f"report_{report.id}_{report.created_at.strftime('%Y%m%d')}.csv"
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
     
     writer = csv.writer(response)
     
-    # Header
     writer.writerow(['ArogyaDrishti - Medical Report'])
     writer.writerow([])
     writer.writerow(['Patient Name', patient_info.get('name', 'Unknown')])
@@ -719,7 +731,6 @@ def export_report_csv(request, report_id):
     writer.writerow(['File', report.file_name])
     writer.writerow([])
     
-    # Results table
     writer.writerow(['Test Name', 'Value', 'Unit', 'Reference Range', 'Status'])
     for r in results:
         ref = '—'
@@ -734,7 +745,6 @@ def export_report_csv(request, report_id):
             r.get('status', ''),
         ])
     
-    # Summary
     writer.writerow([])
     writer.writerow(['Summary'])
     summary = processed.get('summary', {})
@@ -743,7 +753,6 @@ def export_report_csv(request, report_id):
     writer.writerow(['High', summary.get('high', 0)])
     writer.writerow(['Low', summary.get('low', 0)])
     
-    # AI explanation (stripped of markdown)
     ai_exp = report.ai_explanation or {}
     if ai_exp.get('explanation'):
         writer.writerow([])
@@ -771,7 +780,6 @@ def export_report_pdf(request, report_id):
     follow_up = report.follow_up or []
     ai_exp = report.ai_explanation or {}
     
-    # Create PDF buffer
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -782,7 +790,6 @@ def export_report_pdf(request, report_id):
         bottomMargin=15*mm,
     )
     
-    # Styles
     styles = getSampleStyleSheet()
     
     title_style = ParagraphStyle(
@@ -819,14 +826,11 @@ def export_report_pdf(request, report_id):
         leading=13,
     )
     
-    # Build content
     story = []
     
-    # Header
     story.append(Paragraph("♥ ArogyaDrishti", title_style))
     story.append(Paragraph("REPORT ANALYSIS · Medical Report Summary", subtitle_style))
     
-    # Meta info
     meta_data = [
         ['Patient', patient_info.get('name', 'Unknown'),
          'Age', str(patient_info.get('age', 'Unknown'))],
@@ -850,7 +854,6 @@ def export_report_pdf(request, report_id):
     story.append(meta_table)
     story.append(Spacer(1, 8*mm))
     
-    # Summary stats
     story.append(Paragraph("Summary", h2_style))
     summary_data = [
         ['Total Tests', 'Normal', 'High', 'Low'],
@@ -879,7 +882,6 @@ def export_report_pdf(request, report_id):
     story.append(summary_table)
     story.append(Spacer(1, 6*mm))
     
-    # Lab Results table
     story.append(Paragraph("Lab Results", h2_style))
     
     results_data = [['Test Name', 'Value', 'Unit', 'Reference', 'Status']]
@@ -917,7 +919,6 @@ def export_report_pdf(request, report_id):
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
     ]
     
-    # Color abnormal rows
     for i, r in enumerate(results, start=1):
         status = r.get('status', '').upper()
         if status == 'HIGH':
@@ -931,12 +932,9 @@ def export_report_pdf(request, report_id):
     story.append(results_table)
     story.append(Spacer(1, 6*mm))
     
-    # AI Explanation
     if ai_exp.get('explanation'):
         story.append(Paragraph("AI Explanation", h2_style))
-        # Clean markdown
         text = ai_exp['explanation']
-        # Convert markdown headings
         lines = text.split('\n')
         for line in lines:
             stripped = line.strip()
@@ -951,12 +949,10 @@ def export_report_pdf(request, report_id):
             elif stripped.startswith('* ') or stripped.startswith('- '):
                 story.append(Paragraph(f"• {stripped[2:].replace('**', '')}", body_style))
             else:
-                # Replace bold markdown
                 clean = stripped.replace('**', '')
                 story.append(Paragraph(clean, body_style))
         story.append(Spacer(1, 4*mm))
     
-    # Medications
     if medications and medications[0].get('name') != 'No medications detected':
         story.append(Paragraph("Medications", h2_style))
         med_data = [['Medication', 'Dosage', 'Frequency', 'Instructions']]
@@ -984,14 +980,12 @@ def export_report_pdf(request, report_id):
         story.append(med_table)
         story.append(Spacer(1, 4*mm))
     
-    # Follow-up
     if follow_up:
         story.append(Paragraph("Recommended Follow-up", h2_style))
         for item in follow_up:
             story.append(Paragraph(f"• {item}", body_style))
         story.append(Spacer(1, 4*mm))
     
-    # Disclaimer
     disclaimer_style = ParagraphStyle(
         'Disclaimer',
         parent=styles['Normal'],
@@ -1012,10 +1006,8 @@ def export_report_pdf(request, report_id):
         disclaimer_style
     ))
     
-    # Build PDF
     doc.build(story)
     
-    # Return PDF
     buffer.seek(0)
     filename = f"report_{report.id}_{report.created_at.strftime('%Y%m%d')}.pdf"
     response = HttpResponse(buffer, content_type='application/pdf')

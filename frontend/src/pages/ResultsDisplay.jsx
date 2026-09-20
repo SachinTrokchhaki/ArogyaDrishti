@@ -22,6 +22,14 @@ const ResultsDisplay = ({ data }) => {
     const followUp = data.follow_up || [];
     const confidence = data.confidence || { ocr: 94, extraction: 91, classification: 96 };
 
+    // ---- Helper: Extract short provider name ----
+    const getProviderName = () => {
+        if (!data.ai_explanation?.success) return 'Fallback Mode';
+        const provider = data.ai_explanation.provider || 'AI';
+        // Extract "Groq" or "Gemini" from "Groq (qwen/qwen3.8-27b)"
+        return `Powered by ${provider.split('(')[0].trim()}`;
+    };
+
     // ---- CSV download handler ----
     const handleDownloadCSV = async () => {
         if (!data.id) return;
@@ -158,7 +166,7 @@ const ResultsDisplay = ({ data }) => {
                         <div className="ai-header-large">
                             <h3>🤖 AI Explanation</h3>
                             <span className={`ai-badge-modern ${data.ai_explanation.success ? 'active' : 'fallback'}`}>
-                                {data.ai_explanation.success ? 'Powered by Groq AI' : 'Fallback Mode'}
+                                {getProviderName()}
                             </span>
                         </div>
                         <div className="ai-content-large">
