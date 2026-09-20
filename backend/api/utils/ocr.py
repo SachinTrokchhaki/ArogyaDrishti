@@ -168,24 +168,6 @@ class OCRProcessor:
         """
         Extract text from image file using Tesseract with multiple attempts
         """
-        # After extracting text, apply cleaning
-        if extracted_text:
-        # Apply OCR cleaning
-            extracted_text = OCRProcessor.clean_ocr_text(extracted_text)
-    
-        # Also try to fix table formatting
-        lines = extracted_text.split('\n')
-        cleaned_lines = []
-        for line in lines:
-            # Remove extra spaces between table columns
-            line = re.sub(r'\s{2,}', ' ', line)
-            # Fix common test name OCR errors
-            line = line.replace('Hemog1obin', 'Hemoglobin')
-            line = line.replace('Bilirubin', 'Bilirubin')
-            line = line.replace('Creatinine', 'Creatinine')
-            line = line.replace('Cholesterol', 'Cholesterol')
-            cleaned_lines.append(line)
-        extracted_text = '\n'.join(cleaned_lines)
         try:
             # Save uploaded file temporarily
             with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
@@ -297,6 +279,24 @@ class OCRProcessor:
         except Exception as e:
             print(f"OCR Error: {e}")
             return ""
+
+    @staticmethod
+    def estimate_confidence(text):
+        """Estimate extraction quality for gating, not medical certainty."""
+        if not text or len(text.strip()) < 20:
+            return 0
+        words = re.findall(r"[A-Za-z0-9]+", text)
+        if not words:
+            return 0
+        readable_ratio = sum(len(word) > 1 for word in words) / len(words)
+        length_score = min(1.0, len(text.strip()) / 1000)
+        return round(min(99, max(0, readable_ratio * 70 + length_score * 30)))
+
+    @staticmethod
+    def extract_text_with_confidence(file):
+        """Extract text and return a quality score used by the upload gate."""
+        text = OCRProcessor.extract_text(file)
+        return text, OCRProcessor.estimate_confidence(text)
     
     @staticmethod
     def extract_text_from_pdf(pdf_file):
