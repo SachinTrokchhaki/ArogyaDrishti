@@ -1,12 +1,11 @@
 import React from 'react';
+import api from '../services/api';
 import './ResultsDisplay.css';
 
 const ResultsDisplay = ({ data }) => {
     if (!data) {
         return <div className="no-results">No results to display</div>;
     }
-
-    console.log('ResultsDisplay received data:', data);
 
     const processedData = data.processed_data || {};
     const results = processedData.results || [];
@@ -23,6 +22,50 @@ const ResultsDisplay = ({ data }) => {
     const followUp = data.follow_up || [];
     const confidence = data.confidence || { ocr: 94, extraction: 91, classification: 96 };
 
+    // ---- CSV download handler ----
+    const handleDownloadCSV = async () => {
+        if (!data.id) return;
+        try {
+            const response = await api.get(`/reports/${data.id}/export/csv/`, {
+                responseType: 'blob',
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `report_${data.id}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error('CSV export failed:', err);
+            alert('Failed to download CSV');
+        }
+    };
+
+    // ---- PDF download handler ----
+    const handleDownloadPDF = async () => {
+        if (!data.id) return;
+        try {
+            const response = await api.get(`/reports/${data.id}/export/pdf/`, {
+                responseType: 'blob',
+            });
+            const url = window.URL.createObjectURL(
+                new Blob([response.data], { type: 'application/pdf' })
+            );
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `report_${data.id}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error('PDF export failed:', err);
+            alert('Failed to download PDF');
+        }
+    };
+
     return (
         <div className="results-display-modern">
             {/* ===== HEADER ===== */}
@@ -32,9 +75,30 @@ const ResultsDisplay = ({ data }) => {
                     <div className="header-meta">
                         <span className="badge-complete">✅ Completed</span>
                         <span>Analysis Complete · {new Date().toLocaleDateString()}</span>
-                        <span className="report-id">Report ID rpt-{Math.floor(Math.random() * 10000)}</span>
+                        <span className="report-id">
+                            Report ID rpt-{data.id || Math.floor(Math.random() * 10000)}
+                        </span>
                     </div>
                 </div>
+
+                {data.id && (
+                    <div className="header-actions-results">
+                        <button
+                            type="button"
+                            className="btn-export btn-export-csv"
+                            onClick={handleDownloadCSV}
+                        >
+                            📊 Download CSV
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-export btn-export-pdf"
+                            onClick={handleDownloadPDF}
+                        >
+                            📄 Export PDF
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* ===== SUMMARY STATS ===== */}
@@ -69,9 +133,8 @@ const ResultsDisplay = ({ data }) => {
                 </div>
             </div>
 
-            {/* ===== TWO COLUMN: Patient Info (Small) + AI Explanation (Large) ===== */}
+            {/* ===== PATIENT INFO + AI EXPLANATION ===== */}
             <div className="two-column-grid-large">
-                {/* Left: Patient Info - Small */}
                 <div className="patient-info-small">
                     <h3>👤 Patient</h3>
                     <div className="info-compact">
@@ -90,7 +153,6 @@ const ResultsDisplay = ({ data }) => {
                     </div>
                 </div>
 
-                {/* Right: AI Explanation - Large */}
                 {data.ai_explanation && (
                     <div className={`ai-explanation-large ${data.ai_explanation.success ? '' : 'fallback'}`}>
                         <div className="ai-header-large">
@@ -100,15 +162,17 @@ const ResultsDisplay = ({ data }) => {
                             </span>
                         </div>
                         <div className="ai-content-large">
-                            <div dangerouslySetInnerHTML={{ 
-                                __html: (data.ai_explanation.explanation || 'No explanation available.')
-                                    .replace(/\n/g, '<br/>')
-                                    .replace(/##\s+(.+)/g, '<h4>$1</h4>')
-                                    .replace(/###\s+(.+)/g, '<h5>$1</h5>')
-                                    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                                    .replace(/^-\s+(.+)/gm, '<li>$1</li>')
-                                    .replace(/<li>.+<\/li>/g, (match) => `<ul>${match}</ul>`)
-                            }} />
+                            <div
+                                dangerouslySetInnerHTML={{
+                                    __html: (data.ai_explanation.explanation || 'No explanation available.')
+                                        .replace(/\n/g, '<br/>')
+                                        .replace(/##\s+(.+)/g, '<h4>$1</h4>')
+                                        .replace(/###\s+(.+)/g, '<h5>$1</h5>')
+                                        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                                        .replace(/^-\s+(.+)/gm, '<li>$1</li>')
+                                        .replace(/<li>.+<\/li>/g, (match) => `<ul>${match}</ul>`),
+                                }}
+                            />
                         </div>
                         {data.ai_explanation.provider && (
                             <div className="ai-footer-large">
@@ -123,10 +187,9 @@ const ResultsDisplay = ({ data }) => {
             <div className="overall-summary-modern">
                 <h3>📋 Overall Summary</h3>
                 <p>
-                    {abnormalValues.length === 0 
+                    {abnormalValues.length === 0
                         ? 'All reported values are within the reference ranges. This indicates good health status for the tested parameters.'
-                        : `Most reported values are within the reference ranges. ${abnormalValues.length} value(s) are outside the provided reference ranges and may require discussion with a qualified healthcare professional.`
-                    }
+                        : `Most reported values are within the reference ranges. ${abnormalValues.length} value(s) are outside the provided reference ranges and may require discussion with a qualified healthcare professional.`}
                 </p>
             </div>
 
@@ -154,8 +217,8 @@ const ResultsDisplay = ({ data }) => {
                                     <td>{test.value}</td>
                                     <td>{test.unit || '—'}</td>
                                     <td>
-                                        {test.min_range && test.max_range 
-                                            ? `${test.min_range} – ${test.max_range}` 
+                                        {test.min_range && test.max_range
+                                            ? `${test.min_range} – ${test.max_range}`
                                             : '—'}
                                     </td>
                                     <td>
@@ -193,7 +256,9 @@ const ResultsDisplay = ({ data }) => {
                                     </div>
                                     <div className="abnormal-detail">
                                         <span className="detail-label">Reference:</span>
-                                        <span className="detail-value">{test.min_range} – {test.max_range} {test.unit}</span>
+                                        <span className="detail-value">
+                                            {test.min_range} – {test.max_range} {test.unit}
+                                        </span>
                                     </div>
                                 </div>
                             </div>
@@ -202,9 +267,8 @@ const ResultsDisplay = ({ data }) => {
                 </div>
             )}
 
-            {/* ===== TWO COLUMN: Medications + Processing Confidence ===== */}
+            {/* ===== MEDICATIONS + CONFIDENCE ===== */}
             <div className="two-column-grid">
-                {/* Left: Medications */}
                 <div className="medications-modern">
                     <h3>💊 Medications</h3>
                     <p className="medications-subtitle">Detected from the prescription section</p>
@@ -238,7 +302,6 @@ const ResultsDisplay = ({ data }) => {
                     )}
                 </div>
 
-                {/* Right: Processing Confidence */}
                 <div className="confidence-modern">
                     <h3>📊 Processing Confidence</h3>
                     <p className="confidence-subtitle">Pipeline quality indicators</p>
@@ -246,21 +309,30 @@ const ResultsDisplay = ({ data }) => {
                         <div className="confidence-item-modern">
                             <span className="confidence-label">OCR</span>
                             <div className="confidence-bar-modern">
-                                <div className="confidence-fill-modern" style={{ width: `${confidence.ocr || 94}%` }}></div>
+                                <div
+                                    className="confidence-fill-modern"
+                                    style={{ width: `${confidence.ocr || 94}%` }}
+                                ></div>
                             </div>
                             <span className="confidence-value">{confidence.ocr || 94}%</span>
                         </div>
                         <div className="confidence-item-modern">
                             <span className="confidence-label">Extraction</span>
                             <div className="confidence-bar-modern">
-                                <div className="confidence-fill-modern" style={{ width: `${confidence.extraction || 91}%` }}></div>
+                                <div
+                                    className="confidence-fill-modern"
+                                    style={{ width: `${confidence.extraction || 91}%` }}
+                                ></div>
                             </div>
                             <span className="confidence-value">{confidence.extraction || 91}%</span>
                         </div>
                         <div className="confidence-item-modern">
                             <span className="confidence-label">Classification</span>
                             <div className="confidence-bar-modern">
-                                <div className="confidence-fill-modern" style={{ width: `${confidence.classification || 96}%` }}></div>
+                                <div
+                                    className="confidence-fill-modern"
+                                    style={{ width: `${confidence.classification || 96}%` }}
+                                ></div>
                             </div>
                             <span className="confidence-value">{confidence.classification || 96}%</span>
                         </div>
