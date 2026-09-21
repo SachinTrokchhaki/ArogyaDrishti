@@ -43,13 +43,13 @@ export default function DashboardLayout() {
   return (
     <div className="dashboard-layout">
       <aside className="dashboard-sidebar">
-        <Link to="/" className="sidebar-logo">
+        <Link to="/" className="logo">
           <span className="logo-mark">♥</span>
-          <span className="logo-text-group">
+          <span>
             <span className="logo-name">
-              <span className="logo-name-dark">Arogya</span>
-              <span className="logo-name-teal">Drishti</span>
+              <span className="logo-arogya">Arogya</span><span className="logo-drishti">Drishti</span>
             </span>
+            <br />
             <span className="logo-sub">REPORT ANALYSIS</span>
           </span>
         </Link>

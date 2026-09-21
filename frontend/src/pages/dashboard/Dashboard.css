@@ -62,6 +62,7 @@
   line-height: 1.2;
 }
 
+/* Sidebar logo — split color matching main navbar */
 .sidebar-logo .logo-name {
   font-size: 17px;
   font-weight: 700;
@@ -72,11 +73,11 @@
 }
 
 .sidebar-logo .logo-name-dark {
-  color: #0f172a;
+  color: #0f172a;  /* Dark for "Arogya" */
 }
 
 .sidebar-logo .logo-name-teal {
-  color: #0d5c63;
+  color: #0d5c63;  /* Teal for "Drishti" */
 }
 
 .sidebar-logo .logo-sub {

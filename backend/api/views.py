@@ -13,6 +13,7 @@ from .utils.security import validate_upload, scan_for_malware
 from .utils.validation import validate_report_data
 import os
 import re
+import json
 
 from .models import MedicalReport, UserProfile
 from .serializers import MedicalReportSerializer
@@ -363,11 +364,13 @@ def report_trend(request):
 
 
 # ============================================================
-# ============ HELPER FUNCTIONS ============
+# ============ PATIENT INFO EXTRACTION (HYBRID) ============
 # ============================================================
 
-def extract_patient_info(text):
-    """Extract patient information from report text"""
+def extract_patient_info_regex(text):
+    """
+    Extract patient info using regex (fast, free, works ~70% of the time).
+    """
     patient_info = {
         'name': 'Unknown',
         'age': 'Unknown',
@@ -377,50 +380,229 @@ def extract_patient_info(text):
     if not text:
         return patient_info
     
-    text = ' '.join(text.split())
+    # Clean markdown artifacts
+    cleaned = re.sub(r'#+\s*', '', text)
+    cleaned = re.sub(r'\*\*(.+?)\*\*', r'\1', cleaned)
+    cleaned = re.sub(r'\*(.+?)\*', r'\1', cleaned)
+    cleaned = re.sub(r'=+\s*Page \d+\s*=+', '', cleaned)
     
+    flat = ' '.join(cleaned.split())
+    lines = [ln.strip() for ln in cleaned.split('\n') if ln.strip()]
+    
+    skip_words = {
+        'patient', 'name', 'date', 'report', 'sample', 'hospital',
+        'clinic', 'doctor', 'lab', 'test', 'age', 'gender', 'sex',
+        'male', 'female', 'registration', 'id', 'mrn', 'uhid', 'pid',
+        'laboratory', 'diagnostic', 'center', 'centre', 'medical',
+        'no', 'number', 'ref', 'reference', 'collected', 'received',
+        'investigation', 'result', 'value', 'unit', 'primary', 'type',
+        'complete', 'blood', 'count', 'cbc', 'drlogy', 'www',
+        'haemoglobin', 'hemoglobin', 'rbc', 'wbc', 'platelet', 'total',
+        'registered', 'reported', 'thanks', 'interpretation', 'instruments',
+        'shan', 'shah', 'hiren', 'payal', 'vimal', 'pathologist', 'technician',
+        'dr', 'md', 'dmlt', 'bmlt',
+    }
+    
+    def is_valid_name(candidate):
+        if not candidate or len(candidate) < 3 or len(candidate) > 50:
+            return False
+        words = [w.strip('.,;:-') for w in candidate.split()]
+        words_lower = [w.lower() for w in words]
+        if any(w in skip_words for w in words_lower):
+            return False
+        if not all(re.match(r'^[A-Z]\.?$|^[A-Za-z][a-z]+$', w) for w in words if w):
+            return False
+        return True
+    
+    def clean_name(candidate):
+        candidate = re.sub(r'[.,;:\-\s]+$', '', candidate.strip())
+        candidate = re.sub(r'\s+', ' ', candidate)
+        return ' '.join(
+            p.capitalize() if len(p) > 1 else p.upper()
+            for p in candidate.split()
+        )
+    
+    # Name patterns
     name_patterns = [
-        r'Name\s*[:]\s*([A-Za-z\s.]+?)(?:\s+Age|\s+[0-9]|\s*$)',
-        r'Patient\s*[:]\s*([A-Za-z\s.]+?)(?:\s+Age|\s+[0-9]|\s*$)',
-        r'Patient\s+Name\s*[:]\s*([A-Za-z\s.]+?)(?:\s+Age|\s+[0-9]|\s*$)',
-        r'Patient\s+([A-Za-z\s.]+?)(?:\s+Age|\s+[0-9]|\s*$)',
-        r'Name\s+([A-Za-z\s.]+?)(?:\s+Age|\s+[0-9]|\s*$)',
+        r'patient\s*(?:name)?\s*[:.\-]?\s*([A-Z][a-zA-Z]+(?:\s+[A-Z]\.?\s+)?[A-Z][a-zA-Z]+)',
+        r'\bname\s*[:.\-]?\s*([A-Z][a-zA-Z]+(?:\s+[A-Z]\.?\s+)?[A-Z][a-zA-Z]+)',
     ]
     for pattern in name_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
+        match = re.search(pattern, flat)
         if match:
-            patient_info['name'] = match.group(1).strip()
-            break
+            candidate = match.group(1).strip()
+            if is_valid_name(candidate):
+                patient_info['name'] = clean_name(candidate)
+                break
     
+    # Fallback: standalone name line
+    if patient_info['name'] == 'Unknown':
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if re.match(r'^([A-Z][a-zA-Z]+\.?\s+){1,3}[A-Z][a-zA-Z]+\.?$', stripped):
+                next_line = lines[i + 1] if i + 1 < len(lines) else ''
+                if re.search(r'\b(?:age|sex|gender|dob|mrn|pid)\b', next_line, re.IGNORECASE):
+                    if is_valid_name(stripped):
+                        patient_info['name'] = clean_name(stripped)
+                        break
+    
+    # Age
     age_patterns = [
-        r'Age\s*[:]\s*(\d+)',
-        r'Age\s+(\d+)',
-        r'(\d+)\s*Years',
-        r'(\d+)\s*years',
-        r'Age\s+(\d+)\s*[Yy]',
+        r'\bage\s*[:.\-]?\s*(\d{1,3})\s*(?:years?|yrs?|y|ears?)?',
+        r'\b(\d{1,3})\s*(?:years?|yrs?|y\.?o\.?|y/o|ears?)\s*(?:old)?\b',
+        r'\b(\d{1,3})\s*[Yy]\b',
     ]
     for pattern in age_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
+        match = re.search(pattern, flat, re.IGNORECASE)
         if match:
-            patient_info['age'] = match.group(1).strip()
-            break
+            try:
+                age_num = int(match.group(1))
+                if 0 < age_num <= 120:
+                    patient_info['age'] = str(age_num)
+                    break
+            except (ValueError, TypeError):
+                pass
     
+    # Gender
     gender_patterns = [
-        r'Gender\s*[:]\s*([A-Za-z]+)',
-        r'Sex\s*[:]\s*([A-Za-z]+)',
-        r'Gender\s+([A-Za-z]+)',
-        r'Sex\s+([A-Za-z]+)',
+        r'\b(?:sex|gender)\s*[:.\-]?\s*(male|female|m|f|other|non-binary)\b',
+        r'\b(?:sex|gender)\s*[:.\-]?\s*\|\s*(male|female|m|f)\b',
+        r'\b(Male|Female)\b',
     ]
     for pattern in gender_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
+        match = re.search(pattern, flat, re.IGNORECASE)
         if match:
-            gender = match.group(1).strip().lower()
-            if gender in ['male', 'female', 'm', 'f']:
-                patient_info['gender'] = gender.capitalize()
-            break
+            g = match.group(1).strip().lower()
+            if g in ('male', 'm'):
+                patient_info['gender'] = 'Male'
+                break
+            elif g in ('female', 'f'):
+                patient_info['gender'] = 'Female'
+                break
+            elif g == 'other':
+                patient_info['gender'] = 'Other'
+                break
     
     return patient_info
 
+
+def extract_patient_info_ai(text):
+    """
+    Extract patient info using AI (Groq first, Gemini fallback).
+    Accurate for any format but slower (~1s).
+    """
+    try:
+        header = text[:1500]
+        
+        prompt = f"""Extract patient information from this medical report header.
+
+Return ONLY a valid JSON object with these exact keys:
+{{"name": "...", "age": "...", "gender": "..."}}
+
+STRICT RULES:
+- If a field is not clearly found, use "Unknown"
+- Age must be just a number as a string (e.g., "24", not "24 years")
+- Gender must be exactly "Male", "Female", or "Other"
+- DO NOT confuse doctor names (Dr. X, MD, Pathologist) with the patient
+- The patient name is usually near "Age:", "Sex:", "PID:", or "Patient:"
+- Ignore addresses, hospital names, and lab names
+
+Report header:
+{header}
+
+JSON:"""
+        
+        # Try Groq first
+        groq_key = os.getenv('GROQ_API_KEY')
+        if groq_key:
+            try:
+                from groq import Groq
+                client = Groq(api_key=groq_key)
+                response = client.chat.completions.create(
+                    model='qwen/qwen3.8-27b',
+                    messages=[
+                        {'role': 'system', 'content': 'You extract structured data. Return only valid JSON.'},
+                        {'role': 'user', 'content': prompt},
+                    ],
+                    temperature=0.1,
+                    max_tokens=100,
+                )
+                content = response.choices[0].message.content.strip()
+                content = re.sub(r'^```json\s*', '', content)
+                content = re.sub(r'^```\s*', '', content)
+                content = re.sub(r'\s*```$', '', content)
+                result = json.loads(content)
+                print(f"✅ AI (Groq) patient info: {result}")
+                return {
+                    'name': str(result.get('name', 'Unknown') or 'Unknown').strip(),
+                    'age': str(result.get('age', 'Unknown') or 'Unknown').strip(),
+                    'gender': str(result.get('gender', 'Unknown') or 'Unknown').strip(),
+                }
+            except Exception as e:
+                print(f"⚠️  Groq patient extraction failed: {e}")
+        
+        # Fallback to Gemini
+        gemini_key = os.getenv('GEMINI_API_KEY')
+        if gemini_key:
+            try:
+                from google import genai as google_genai
+                client = google_genai.Client(api_key=gemini_key)
+                response = client.models.generate_content(
+                    model='gemini-3.6-flash',
+                    contents=prompt,
+                )
+                content = response.text.strip()
+                content = re.sub(r'^```json\s*', '', content)
+                content = re.sub(r'^```\s*', '', content)
+                content = re.sub(r'\s*```$', '', content)
+                result = json.loads(content)
+                print(f"✅ AI (Gemini) patient info: {result}")
+                return {
+                    'name': str(result.get('name', 'Unknown') or 'Unknown').strip(),
+                    'age': str(result.get('age', 'Unknown') or 'Unknown').strip(),
+                    'gender': str(result.get('gender', 'Unknown') or 'Unknown').strip(),
+                }
+            except Exception as e:
+                print(f"⚠️  Gemini patient extraction failed: {e}")
+    
+    except Exception as e:
+        print(f"❌ AI patient extraction failed: {e}")
+    
+    return {'name': 'Unknown', 'age': 'Unknown', 'gender': 'Unknown'}
+
+
+def extract_patient_info(text):
+    """
+    Hybrid patient extraction:
+    1. Regex first (fast, free)
+    2. AI fallback if any field is Unknown
+    AI overrides regex when confident.
+    """
+    # Step 1: Try regex
+    info = extract_patient_info_regex(text)
+    
+    # Step 2: If any field is Unknown, use AI to fill gaps
+    missing = [k for k in ('name', 'age', 'gender') if info[k] == 'Unknown']
+    
+    if missing:
+        print(f"🔍 Regex found: {info}")
+        print(f"🔍 Missing: {missing} — calling AI...")
+        ai_info = extract_patient_info_ai(text)
+        
+        # Merge: AI takes priority when it finds a value
+        for key in ('name', 'age', 'gender'):
+            ai_val = ai_info.get(key, 'Unknown')
+            if ai_val and ai_val != 'Unknown':
+                info[key] = ai_val
+        
+        print(f"✅ Final patient info: {info}")
+    
+    return info
+
+
+# ============================================================
+# ============ HELPER FUNCTIONS ============
+# ============================================================
 
 def generate_medications(results):
     """Generate medications based on test results"""
@@ -584,8 +766,9 @@ def upload_report(request):
     Upload and process a medical report.
     - Validates upload
     - Runs OCR + classification + extraction
+    - Extracts patient info (regex + AI fallback)
     - Generates AI explanation
-    - SAVES file to disk AND report to database (so user can see history)
+    - SAVES file to disk AND report to database
     """
     file = request.FILES.get('file')
     if not file:
@@ -594,12 +777,12 @@ def upload_report(request):
     try:
         content = file.read()
         
-        # 1. Validate upload (size, extension, MIME, magic bytes)
+        # 1. Validate upload
         valid, validation_error = validate_upload(file.name, file.content_type, content)
         if not valid:
             return Response({'error': validation_error}, status=status.HTTP_400_BAD_REQUEST)
         
-        # 2. Optional malware scan (disabled by default)
+        # 2. Optional malware scan
         clean, scan_message = scan_for_malware(content)
         if not clean:
             return Response({'error': scan_message}, status=status.HTTP_400_BAD_REQUEST)
@@ -610,7 +793,7 @@ def upload_report(request):
             ContentFile(content)
         )
         
-        # 4. OCR extraction with confidence
+        # 4. OCR extraction
         from django.core.files import File
         from io import BytesIO
         file_obj = File(BytesIO(content), name=file.name)
@@ -622,9 +805,11 @@ def upload_report(request):
         # 6. Extract structured medical values
         processed_results = ReportProcessor.extract_medical_values(extracted_text)
         summary = ReportProcessor.get_summary(processed_results)
+        
+        # 7. Extract patient info (hybrid: regex + AI fallback)
         patient_info = extract_patient_info(extracted_text)
         
-        # 7. Validate report data
+        # 8. Validate report data
         validation = validate_report_data(
             classification['document_type'],
             processed_results,
@@ -632,14 +817,14 @@ def upload_report(request):
             extracted_text
         )
         
-        # 8. Generate medications, follow-up, confidence
+        # 9. Generate medications, follow-up, confidence
         medications = generate_medications(processed_results)
         follow_up = generate_follow_up(processed_results)
         confidence = generate_confidence(processed_results, extracted_text)
         confidence['ocr'] = ocr_confidence
         confidence['classification'] = classification['confidence']
         
-        # 9. Generate AI explanation
+        # 10. Generate AI explanation
         ai_explainer = AIExplainer()
         ai_explanation = ai_explainer.generate_explanation(
             processed_results,
@@ -647,7 +832,7 @@ def upload_report(request):
             patient_info
         )
         
-        # 10. Prepare processed_data
+        # 11. Prepare processed_data
         processed_data = {
             'results': processed_results,
             'summary': summary,
@@ -660,7 +845,7 @@ def upload_report(request):
             },
         }
         
-        # 11. ALWAYS save to database (so user can see history)
+        # 12. Save to database
         report = MedicalReport.objects.create(
             file=saved_path,
             file_name=file.name,
@@ -674,7 +859,7 @@ def upload_report(request):
             user=request.user
         )
         
-        # 12. Return full response
+        # 13. Return full response
         response_data = {
             'id': report.id,
             'file_name': file.name,

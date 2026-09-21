@@ -139,7 +139,6 @@ class AIExplainer:
                         'failures': failures,
                     }
                 else:
-                    # Empty response — not worth retrying
                     failures.append({
                         'provider': 'Groq',
                         'model': model_name,
@@ -213,47 +212,66 @@ class AIExplainer:
         return None
     
     def _build_prompt(self, results, summary, patient_info):
-        """Build the prompt for AI providers."""
+        """Build a structured prompt that produces scannable output."""
         results_text = self._format_results_for_prompt(results)
         summary_text = self._format_summary_for_prompt(summary)
         patient_text = self._format_patient_for_prompt(patient_info)
         
+        # Extract first name for personalization
+        patient_name = patient_info.get('name', 'there') if patient_info else 'there'
+        first_name = patient_name.split()[0] if patient_name and patient_name != 'Unknown' else 'there'
+        
         return f"""
-You are a medical AI assistant explaining lab results to a patient in simple, clear, and empathetic language.
+You are a friendly medical AI explaining lab results to a patient.
 
 {patient_text}
 
-SUMMARY OF RESULTS:
+SUMMARY:
 {summary_text}
 
-DETAILED TEST RESULTS:
+DETAILED RESULTS:
 {results_text}
 
-Please provide a patient-friendly explanation with the following sections:
+Write a patient-friendly explanation using EXACTLY this format. Do NOT deviate.
 
-1. **Overall Summary** (2-3 sentences): Give an overall assessment of the report in simple terms.
+Start with one short warm greeting using the first name "{first_name}".
 
-2. **Abnormal Values Analysis** (if any): For each abnormal value, explain:
-   - What the test measures in simple terms
-   - What the value means
-   - Possible reasons for being high/low
-   - Simple lifestyle recommendations
+Then use these EXACT section headings (with emojis):
 
-3. **Normal Values**: Briefly mention that most values are normal.
+## 🎯 Key Findings
+Write ONE short sentence summarizing the overall picture. If everything is normal, say so clearly. If not, mention how many values need attention.
 
-4. **Recommendations**: Provide 3-4 actionable health recommendations.
+## 📊 What Each Value Means
+For EACH abnormal value (HIGH or LOW), use this exact format:
 
-5. **Important Disclaimer**: Add a disclaimer that this is not medical advice.
+**<Test Name>: <Value> <Unit>** <⬆️ or ⬇️>
 
-Guidelines:
-- Use simple, non-technical language (6th-grade reading level)
-- Be empathetic and reassuring
-- Use bullet points for easy reading
-- Keep it concise but informative
-- Never use the word "diagnosis"
-- Always recommend consulting a doctor for abnormal results
+<1-2 sentence explanation in very simple language>
 
-FORMAT: Use markdown with clear headings (##, ###) and bullet points.
+→ What to do: <1 short actionable sentence>
+
+If there are no abnormal values, just write: "All your test values are within the normal range. Great news!"
+
+## 💡 What You Can Do
+Use 3 to 4 bullet points, each starting with an emoji:
+✅ <actionable tip based on the results>
+💧 <hydration or rest tip>
+🥗 <diet tip>
+🏃 <lifestyle tip>
+
+## ⚠️ Important Note
+One sentence reminder that this is educational information and not medical advice. Recommend consulting a doctor.
+
+STRICT RULES:
+- Use plain 6th-grade level English
+- Total length: under 220 words
+- NEVER use the word "diagnosis"
+- Do NOT use markdown like ** inside the explanation sentences (only for test names as shown)
+- Do NOT wrap headings in # symbols (just use ## as shown)
+- Do NOT add extra sections
+- Address the patient directly as "you"
+- Be warm, reassuring, and clear
+- If a value is very abnormal, gently suggest seeing a doctor soon
 """
     
     def _format_results_for_prompt(self, results):
@@ -299,11 +317,11 @@ FORMAT: Use markdown with clear headings (##, ###) and bullet points.
         """Local template explanation (no AI needed)."""
         if not results:
             return """
-## Overall Summary
+## 🎯 Key Findings
 No test results were found in the uploaded report. Please ensure the report is clearly visible and try again.
 
-## Important
-This tool provides analysis and explanations for educational purposes only. Always consult a qualified healthcare professional for medical advice.
+## ⚠️ Important Note
+This tool provides analysis for educational purposes only. Always consult a qualified healthcare professional for medical advice.
 """
         
         total = summary.get('total_tests', 0)
@@ -313,39 +331,31 @@ This tool provides analysis and explanations for educational purposes only. Alwa
         abnormal = [r for r in results if r.get('status') in ['HIGH', 'LOW']]
         
         explanation = f"""
-## Overall Summary
-Your medical report shows {total} test results.
-- {normal} values are within normal range ✅
-- {high} values are above normal range ⬆️
-- {low} values are below normal range ⬇️
+## 🎯 Key Findings
+Your report shows {total} test results: {normal} normal, {high} high, and {low} low.
 
 """
         
         if abnormal:
-            explanation += "## Abnormal Values Analysis\n\n"
+            explanation += "## 📊 What Each Value Means\n\n"
             for r in abnormal:
                 status = r.get('status', 'UNKNOWN')
                 arrow = '⬆️' if status == 'HIGH' else '⬇️'
-                explanation += f"""
-### {r.get('test_name', 'Unknown')}
-- Value: {r.get('value', '?')} {r.get('unit', '')}
-- Reference Range: {r.get('min_range', '?')} - {r.get('max_range', '?')} {r.get('unit', '')}
-- **Status: {status}** {arrow}
+                explanation += f"""**{r.get('test_name', 'Unknown')}: {r.get('value', '?')} {r.get('unit', '')}** {arrow}
 
-This value is {status.lower()} compared to the normal range. Please consult your doctor for proper interpretation.
+This value is {status.lower()} compared to the normal range.
+
+→ What to do: Consult your doctor for proper interpretation.
 
 """
         
-        explanation += """
-## Recommendations
+        explanation += """## 💡 What You Can Do
+✅ Discuss abnormal results with a qualified healthcare professional
+💧 Stay hydrated and get adequate rest
+🥗 Maintain a balanced diet with fresh fruits and vegetables
+🏃 Regular light exercise is beneficial
 
-1. **Discuss abnormal results with a qualified healthcare professional**
-2. **Keep this report for future reference**
-3. **Follow any instructions provided by your doctor**
-4. **Maintain a healthy lifestyle with balanced diet and regular exercise**
-
-## Important Disclaimer
-
-⚠️ This explanation is generated for educational purposes only and is **not** a medical diagnosis. Always consult a qualified healthcare professional for proper medical advice, diagnosis, and treatment.
+## ⚠️ Important Note
+This explanation is for educational purposes only and is not a medical diagnosis. Always consult a qualified healthcare professional.
 """
         return explanation
