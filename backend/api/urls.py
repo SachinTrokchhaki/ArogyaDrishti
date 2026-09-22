@@ -25,6 +25,11 @@ urlpatterns = [
     path('reports/<int:report_id>/export/csv/', views.export_report_csv, name='export_report_csv'),
     path('reports/<int:report_id>/export/pdf/', views.export_report_pdf, name='export_report_pdf'),
 
+    # ============ AI ASSISTANT Q&A ============
+    path('reports/<int:report_id>/ask/', views.ask_report_question, name='ask_report_question'),
+    path('reports/<int:report_id>/chat/', views.get_report_chat_history, name='get_report_chat_history'),
+    path('reports/<int:report_id>/chat/clear/', views.clear_report_chat, name='clear_report_chat'),
+
     # ============ ADMIN ============
     path('admin/login/', admin_views.admin_login, name='admin_login'),
     path('admin/stats/', admin_views.admin_stats, name='admin_stats'),

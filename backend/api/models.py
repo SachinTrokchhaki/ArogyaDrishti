@@ -66,3 +66,28 @@ def save_user_profile(sender, instance, **kwargs):
         instance.profile.save()
     except UserProfile.DoesNotExist:
         UserProfile.objects.create(user=instance)
+        
+
+class ChatMessage(models.Model):
+    """Store AI Assistant Q&A per report per user."""
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='chat_messages'
+    )
+    report = models.ForeignKey(
+        MedicalReport,
+        on_delete=models.CASCADE,
+        related_name='chat_messages'
+    )
+    question = models.TextField()
+    answer = models.TextField()
+    provider = models.CharField(max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Q: {self.question[:50]}..."
+

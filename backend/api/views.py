@@ -15,6 +15,11 @@ import os
 import re
 import json
 
+from .models import MedicalReport, UserProfile, ChatMessage
+from .serializers import MedicalReportSerializer, ChatMessageSerializer
+from django.utils import timezone
+from datetime import timedelta
+
 from .models import MedicalReport, UserProfile
 from .serializers import MedicalReportSerializer
 from .utils.ocr import OCRProcessor
@@ -1198,3 +1203,140 @@ def export_report_pdf(request, report_id):
     response = HttpResponse(buffer, content_type='application/pdf')
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
+
+
+# ============================================================
+# ============ AI ASSISTANT Q&A VIEWS ============
+# ============================================================
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def ask_report_question(request, report_id):
+    """
+    Ask a question about a specific report.
+    Rate limited: max 30 questions per user per day.
+    """
+    try:
+        report = MedicalReport.objects.get(id=report_id, user=request.user)
+    except MedicalReport.DoesNotExist:
+        return Response({'error': 'Report not found'}, status=404)
+    
+    question = request.data.get('question', '').strip()
+    if not question:
+        return Response({'error': 'Question is required'}, status=400)
+    if len(question) > 500:
+        return Response({'error': 'Question too long (max 500 characters)'}, status=400)
+    
+    # Rate limit: 30 questions per day
+    one_day_ago = timezone.now() - timedelta(days=1)
+    today_count = ChatMessage.objects.filter(
+        user=request.user,
+        created_at__gte=one_day_ago
+    ).count()
+    
+    if today_count >= 30:
+        return Response({
+            'error': 'Daily question limit reached (30/day). Please try again tomorrow.'
+        }, status=429)
+    
+    # Get report data
+    processed = report.processed_data or {}
+    patient_info = processed.get('patient_info', {})
+    
+    report_data = {
+        'results': processed.get('results', []),
+        'summary': processed.get('summary', {}),
+        'document_type': processed.get('document_type', 'Medical Report'),
+    }
+    
+    # Get recent chat history for this report
+    history_msgs = ChatMessage.objects.filter(
+        user=request.user,
+        report=report
+    ).order_by('created_at')[:10]
+    
+    chat_history = [{'question': m.question, 'answer': m.answer} for m in history_msgs]
+    
+    # Get logged-in user's display name
+    logged_in_name = (
+        request.user.get_full_name().strip()
+        or request.user.first_name.strip()
+        or request.user.username
+    )
+    
+    # Ask AI
+    try:
+        explainer = AIExplainer()
+        result = explainer.answer_question(
+            question=question,
+            report_data=report_data,
+            patient_info=patient_info,
+            chat_history=chat_history,
+            current_user_info={'name': logged_in_name},
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return Response({'error': f'AI failed: {str(e)}'}, status=500)
+    
+    # Save to DB
+    chat_msg = ChatMessage.objects.create(
+        user=request.user,
+        report=report,
+        question=question,
+        answer=result['answer'],
+        provider=result.get('provider', 'unknown'),
+    )
+    
+    return Response({
+        'id': chat_msg.id,
+        'question': chat_msg.question,
+        'answer': chat_msg.answer,
+        'provider': chat_msg.provider,
+        'created_at': chat_msg.created_at,
+        'success': result.get('success', False),
+        'questions_today': today_count + 1,
+        'daily_limit': 30,
+    })
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_report_chat_history(request, report_id):
+    """Get all chat messages for a specific report."""
+    try:
+        report = MedicalReport.objects.get(id=report_id, user=request.user)
+    except MedicalReport.DoesNotExist:
+        return Response({'error': 'Report not found'}, status=404)
+    
+    messages = ChatMessage.objects.filter(
+        user=request.user,
+        report=report
+    ).order_by('created_at')
+    
+    serializer = ChatMessageSerializer(messages, many=True)
+    return Response({
+        'report_id': report.id,
+        'report_name': report.file_name,
+        'count': messages.count(),
+        'messages': serializer.data,
+    })
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def clear_report_chat(request, report_id):
+    """Clear all chat messages for a specific report."""
+    try:
+        report = MedicalReport.objects.get(id=report_id, user=request.user)
+    except MedicalReport.DoesNotExist:
+        return Response({'error': 'Report not found'}, status=404)
+    
+    deleted_count, _ = ChatMessage.objects.filter(
+        user=request.user,
+        report=report
+    ).delete()
+    
+    return Response({
+        'message': f'Cleared {deleted_count} messages',
+        'deleted': deleted_count,
+    })

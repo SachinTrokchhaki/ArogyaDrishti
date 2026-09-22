@@ -13,6 +13,7 @@ import MyReports from './pages/dashboard/MyReports';
 import UploadReport from './pages/dashboard/UploadReport';
 import ReportDetail from './pages/dashboard/ReportDetail';
 import Profile from './pages/dashboard/Profile';
+import Assistant from './pages/dashboard/Assistant';
 import AdminLogin from './pages/admin/AdminLogin';
 import AdminLayout from './pages/admin/AdminLayout';
 import AdminHome from './pages/admin/AdminHome';
@@ -47,6 +48,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="reports" element={<MyReports />} />
               <Route path="reports/:id" element={<ReportDetail />} />
               <Route path="profile" element={<Profile />} />
+              <Route path="assistant" element={<Assistant />} />
             </Route>
 
             {/* Admin Routes (completely separate) */}

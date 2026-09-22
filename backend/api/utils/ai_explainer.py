@@ -84,25 +84,29 @@ class AIExplainer:
         if not self.groq and not self.gemini_client:
             print("⚠️  No AI providers available. Will use local fallback template.")
     
+    # ============================================================
+    # ============ PUBLIC METHODS ============
+    # ============================================================
+    
     def generate_explanation(self, results, summary, patient_info=None):
         """Generate patient-friendly explanation with provider fallback + retry."""
         prompt = self._build_prompt(results, summary, patient_info)
         failures = []
         
-        # ===== Try Groq models (each with retry) =====
+        # Try Groq models (each with retry)
         if self.groq:
             for model_name in self.GROQ_MODELS:
                 result = self._try_groq_with_retry(model_name, prompt, failures)
                 if result:
                     return result
         
-        # ===== Try Gemini (with retry) =====
+        # Try Gemini (with retry)
         if self.gemini_client:
             result = self._try_gemini_with_retry(prompt, failures)
             if result:
                 return result
         
-        # ===== All providers failed → local template =====
+        # All providers failed → local template
         print(f"❌ All AI providers failed. Using local template.")
         print(f"   Failures: {failures}")
         return {
@@ -111,6 +115,158 @@ class AIExplainer:
             'provider': 'Local template',
             'failures': failures,
         }
+    
+    def answer_question(self, question, report_data, patient_info=None, chat_history=None, current_user_info=None):
+        """
+        Answer a specific question about a report.
+        
+        Args:
+            question: user's question string
+            report_data: dict with 'results', 'summary', 'document_type'
+            patient_info: dict with 'name', 'age', 'gender' (report's patient)
+            chat_history: list of {question, answer} for context
+            current_user_info: dict with 'name' (logged-in user)
+        """
+        results = report_data.get('results', [])
+        summary = report_data.get('summary', {})
+        document_type = report_data.get('document_type', 'Medical Report')
+        
+        # Format context
+        results_text = self._format_results_for_prompt(results)
+        summary_text = self._format_summary_for_prompt(summary)
+        patient_text = self._format_patient_for_prompt(patient_info)
+        
+        # Determine names for greeting
+        report_patient_name = (patient_info or {}).get('name', 'Unknown')
+        logged_in_name = (current_user_info or {}).get('name', 'there')
+        
+        # Decide how to address the report
+        if (
+            report_patient_name
+            and report_patient_name != 'Unknown'
+            and report_patient_name.lower().strip() != logged_in_name.lower().strip()
+        ):
+            # Different person — mention both names
+            report_reference = f"{report_patient_name}'s report"
+            context_line = (
+                f"The logged-in user is {logged_in_name}. "
+                f"The report belongs to {report_patient_name} (a different person). "
+                f"Greet {logged_in_name} and refer to the report as "
+                f"\"{report_patient_name}'s report\"."
+            )
+        else:
+            # Same person or unknown — just use the user's name
+            report_reference = "your report"
+            context_line = (
+                f"The logged-in user is {logged_in_name} and this is their own report. "
+                f"Greet {logged_in_name} warmly."
+            )
+        
+        # Build chat history context
+        history_text = ""
+        if chat_history:
+            history_lines = []
+            for msg in chat_history[-5:]:  # last 5 messages
+                history_lines.append(f"User: {msg['question']}")
+                history_lines.append(f"Assistant: {msg['answer']}")
+            if history_lines:
+                history_text = "\n\nPREVIOUS CONVERSATION:\n" + "\n".join(history_lines)
+        
+        prompt = f"""You are a friendly medical AI assistant helping a user understand a medical report.
+
+CONTEXT:
+{context_line}
+The report is referred to as: "{report_reference}"
+
+{patient_text}
+
+REPORT TYPE: {document_type}
+
+SUMMARY:
+{summary_text}
+
+DETAILED RESULTS:
+{results_text}
+{history_text}
+
+The user asks: "{question}"
+
+Write a warm, helpful answer.
+
+STRICT RULES:
+- Start your FIRST reply with a brief friendly greeting using the name "{logged_in_name}"
+- When referring to the report, say "{report_reference}"
+- Answer ONLY based on the report data above
+- Use plain 6th-grade English
+- Keep the answer under 120 words
+- NEVER use the word "diagnosis"
+- If the question is about a value not in this report, politely say so
+- If the question requires medical judgment, recommend consulting a doctor
+- If the question is off-topic, gently redirect
+- Use markdown bullets for lists when helpful
+- Be warm and reassuring
+- Address the user as "you"
+
+Answer:"""
+        
+        failures = []
+        
+        # Try Groq
+        if self.groq:
+            for model_name in self.GROQ_MODELS:
+                try:
+                    print(f"🤖 Q&A Groq: {model_name}")
+                    response = self.groq.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {'role': 'system', 'content': 'You are a helpful medical assistant. Answer based only on the given report data.'},
+                            {'role': 'user', 'content': prompt},
+                        ],
+                        temperature=0.3,
+                        max_tokens=500,
+                    )
+                    answer = response.choices[0].message.content
+                    if answer and len(answer.strip()) > 10:
+                        print(f"✅ Q&A Groq success: {model_name}")
+                        return {
+                            'success': True,
+                            'answer': answer,
+                            'provider': f'Groq ({model_name})',
+                        }
+                except Exception as e:
+                    failures.append({'provider': 'Groq', 'model': model_name, 'error': str(e)})
+                    continue
+        
+        # Try Gemini
+        if self.gemini_client:
+            try:
+                print(f"🤖 Q&A Gemini: {self.GEMINI_MODEL}")
+                response = self.gemini_client.models.generate_content(
+                    model=self.GEMINI_MODEL,
+                    contents=prompt,
+                )
+                answer = response.text
+                if answer and len(answer.strip()) > 10:
+                    print(f"✅ Q&A Gemini success: {self.GEMINI_MODEL}")
+                    return {
+                        'success': True,
+                        'answer': answer,
+                        'provider': f'Gemini ({self.GEMINI_MODEL})',
+                    }
+            except Exception as e:
+                failures.append({'provider': 'Gemini', 'error': str(e)})
+        
+        # Fallback
+        return {
+            'success': False,
+            'answer': f"Hi {logged_in_name}, I'm unable to answer right now. Please try again in a moment.",
+            'provider': 'unavailable',
+            'failures': failures,
+        }
+    
+    # ============================================================
+    # ============ PRIVATE METHODS ============
+    # ============================================================
     
     def _try_groq_with_retry(self, model_name, prompt, failures):
         """Try a Groq model with retry logic. Returns result dict or None."""

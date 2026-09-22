@@ -35,6 +35,7 @@ export default function DashboardLayout() {
     { path: '/dashboard', label: 'Dashboard', icon: '▦' },
     { path: '/dashboard/upload', label: 'Upload Report', icon: '⬆' },
     { path: '/dashboard/reports', label: 'My Reports', icon: '📊' },
+    { path: '/dashboard/assistant', label: 'AI Assistant', icon: '💬' },
     { path: '/dashboard/profile', label: 'Profile', icon: '👤' },
   ];
 
