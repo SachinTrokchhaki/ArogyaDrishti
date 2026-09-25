@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import FileUpload from '../../components/FileUpload';
 import ProcessingPipeline from '../../components/ProcessingPipeline';
 import ResultsDisplay from '../ResultsDisplay';
-import api from '../../services/api';
 import './Dashboard.css';
 
 export default function UploadReport() {
@@ -13,41 +12,21 @@ export default function UploadReport() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  const handleFileUploaded = async (file) => {
+  const handleFileUploaded = (file) => {
     setShowUpload(false);
     setShowPipeline(true);
     setError(null);
+  };
 
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
+  const handleAnalysisComplete = (data) => {
+    setShowPipeline(false);
+    setResult(data);
+  };
 
-      const response = await api.post('/upload/', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-
-      // Small delay to show pipeline animation
-      setTimeout(() => {
-        setShowPipeline(false);
-        setResult(response.data);
-      }, 1500);
-
-    } catch (error) {
-      console.error('Upload error:', error);
-      setShowPipeline(false);
-      setShowUpload(true);
-
-      if (error.response?.status === 401) {
-        setError('Please login to upload reports.');
-        setTimeout(() => {
-          navigate('/login');
-        }, 2000);
-      } else {
-        setError(error.response?.data?.error || 'Failed to process report. Please try again.');
-      }
-    }
+  const handleError = (errorMessage) => {
+    setShowPipeline(false);
+    setShowUpload(true);
+    setError(errorMessage);
   };
 
   const handleReset = () => {
@@ -58,60 +37,90 @@ export default function UploadReport() {
   };
 
   return (
-    <div className="dashboard-content">
-      <div className="dashboard-header">
-        <div>
-          <h1 className="dashboard-title">Upload report</h1>
-          <p className="dashboard-subtitle">
-            Add a lab report and we will explain the values in simple language.
-          </p>
-        </div>
+    <div className="upload-report-page">
+      {/* ===== HERO (matches main page) ===== */}
+      <div className="upload-report-hero">
+        <h1>📊 Medical Report Analysis</h1>
+        <p>Upload your medical report and get instant analysis with AI-powered insights</p>
       </div>
 
-      {error && (
-        <div className="alert-error" style={{ marginBottom: '20px' }}>
-          ⚠️ {error}
-        </div>
-      )}
-
-      {showUpload && (
-        <FileUpload onFileUploaded={handleFileUploaded} />
-      )}
-
-      {showPipeline && (
-        <ProcessingPipeline onComplete={() => {}} />
-      )}
-
-      {result && (
-        <>
-          <ResultsDisplay data={result} />
-
-          <div style={{ marginTop: '24px', display: 'flex', gap: '12px' }}>
-            <button 
-              className="btn-upload-primary"
-              onClick={handleReset}
-            >
-              📤 Upload Another Report
-            </button>
-            <button 
-              className="btn-back"
-              onClick={() => navigate('/dashboard/reports')}
-            >
-              View My Reports
-            </button>
+      <div className="upload-report-container">
+        {error && (
+          <div className="alert-error" style={{ marginBottom: '20px' }}>
+            ⚠️ {error}
           </div>
-        </>
-      )}
+        )}
 
-      {showUpload && !result && (
-        <div className="dashboard-disclaimer">
-          <span className="disclaimer-icon">⚠</span>
-          <span>
-            <strong>Disclaimer:</strong> This system provides educational information and is not a medical 
-            diagnosis or a substitute for professional medical advice.
-          </span>
-        </div>
-      )}
+        {showUpload && (
+          <FileUpload
+            onFileUploaded={handleFileUploaded}
+            onAnalysisComplete={handleAnalysisComplete}
+            onError={handleError}
+          />
+        )}
+
+        {showPipeline && (
+          <ProcessingPipeline onComplete={() => {}} />
+        )}
+
+        {result && (
+          <>
+            <ResultsDisplay data={result} />
+
+            <div className="re-upload-section">
+              <button
+                className="btn btn-outline"
+                onClick={handleReset}
+              >
+                📤 Upload Another Report
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => navigate('/dashboard/reports')}
+              >
+                📊 View My Reports →
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ===== INFO CARDS (matches main page) ===== */}
+        {showUpload && !result && (
+          <div className="upload-info-cards">
+            <div className="info-card">
+              <span className="info-icon">🔒</span>
+              <h3>Secure & Private</h3>
+              <p>Your reports are processed securely and never shared</p>
+            </div>
+            <div className="info-card">
+              <span className="info-icon">⚡</span>
+              <h3>Fast Results</h3>
+              <p>Get structured results in under a minute</p>
+            </div>
+            <div className="info-card">
+              <span className="info-icon">📋</span>
+              <h3>Supported Formats</h3>
+              <p>PDF, PNG, JPG, JPEG - Max 10MB</p>
+            </div>
+            <div className="info-card">
+              <span className="info-icon">🤖</span>
+              <h3>AI-Powered</h3>
+              <p>Advanced AI extracts and explains medical values</p>
+            </div>
+          </div>
+        )}
+
+        {/* ===== DISCLAIMER (matches main page) ===== */}
+        {showUpload && !result && (
+          <div className="analysis-disclaimer">
+            <p>
+              ⚠️ <strong>Disclaimer:</strong> This tool provides analysis and explanations for
+              educational purposes only. Always consult a qualified healthcare professional for
+              medical advice.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

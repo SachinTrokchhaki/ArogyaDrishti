@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/common/Navbar';
 import Footer from '../components/common/Footer';
 import FileUpload from '../components/FileUpload';
@@ -8,6 +9,7 @@ import api from '../services/api';
 import './ReportAnalysis.css';
 
 const ReportAnalysis = () => {
+  const navigate = useNavigate();
   const [showUpload, setShowUpload] = useState(true);
   const [showPipeline, setShowPipeline] = useState(false);
   const [result, setResult] = useState(null);
@@ -41,7 +43,7 @@ const ReportAnalysis = () => {
       if (error.response?.status === 401) {
         setError('Please login to upload reports.');
         setTimeout(() => {
-          window.location.href = '/login';
+          navigate('/login');
         }, 2000);
       } else {
         setError(error.response?.data?.error || 'Failed to process report. Please try again.');
@@ -59,6 +61,13 @@ const ReportAnalysis = () => {
     setShowPipeline(false);
     setUploadedFile(null);
     setError(null);
+  };
+
+  // ✅ Navigate to full report view in dashboard
+  const handleViewFullReport = () => {
+    if (result?.id) {
+      navigate(`/dashboard/reports`);
+    }
   };
 
   return (
@@ -93,6 +102,8 @@ const ReportAnalysis = () => {
             {result && (
               <>
                 <ResultsDisplay data={result} />
+                
+                {/* ✅ Action buttons after analysis */}
                 <div className="re-upload-section">
                   <button 
                     className="btn btn-outline" 
@@ -100,6 +111,15 @@ const ReportAnalysis = () => {
                   >
                     📤 Upload Another Report
                   </button>
+                  
+                  {result.id && (
+                    <button 
+                      className="btn btn-primary"
+                      onClick={handleViewFullReport}
+                    >
+                      📊 View My Reports →
+                    </button>
+                  )}
                 </div>
               </>
             )}

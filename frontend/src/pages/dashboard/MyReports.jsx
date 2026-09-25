@@ -36,16 +36,19 @@ export default function MyReports() {
     let result = [...reports];
 
     if (searchTerm) {
-      result = result.filter(r => 
+      result = result.filter(r =>
         r.file_name.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
     if (filterType !== 'all') {
       result = result.filter(r => {
-        const hasResults = r.processed_data?.results?.length > 0;
-        if (filterType === 'analyzed') return hasResults;
-        if (filterType === 'processing') return !hasResults;
+        const hasResults = (r.processed_data?.results || []).length > 0;
+        const hasExplanation = !!r.ai_explanation?.explanation;
+        const isAnalyzed = hasResults || hasExplanation;
+
+        if (filterType === 'analyzed') return isAnalyzed;
+        if (filterType === 'processing') return !isAnalyzed;
         return true;
       });
     }
@@ -70,9 +73,15 @@ export default function MyReports() {
     }
   };
 
+  // ✅ FIXED: Uses AI explanation OR results to determine status
   const getStatusBadge = (report) => {
-    const hasResults = report.processed_data?.results?.length > 0;
-    if (hasResults) return { label: 'Analyzed', class: 'status-analyzed' };
+    const hasResults = (report.processed_data?.results || []).length > 0;
+    const hasExplanation = !!report.ai_explanation?.explanation;
+    const isAnalyzed = hasResults || hasExplanation;
+
+    if (isAnalyzed) {
+      return { label: 'Analyzed', class: 'status-analyzed' };
+    }
     return { label: 'Processing', class: 'status-processing' };
   };
 
@@ -87,9 +96,11 @@ export default function MyReports() {
       <div className="dashboard-header">
         <div>
           <h1 className="dashboard-title">My reports</h1>
-          <p className="dashboard-subtitle">{reports.length} report{reports.length !== 1 ? 's' : ''} in your history.</p>
+          <p className="dashboard-subtitle">
+            {reports.length} report{reports.length !== 1 ? 's' : ''} in your history.
+          </p>
         </div>
-        <button 
+        <button
           className="btn-upload-primary"
           onClick={() => navigate('/dashboard/upload')}
         >
@@ -111,7 +122,7 @@ export default function MyReports() {
             />
           </div>
 
-          <select 
+          <select
             className="filter-select"
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
@@ -121,7 +132,7 @@ export default function MyReports() {
             <option value="processing">Processing</option>
           </select>
 
-          <select 
+          <select
             className="filter-select"
             value={sortOrder}
             onChange={(e) => setSortOrder(e.target.value)}
@@ -155,13 +166,13 @@ export default function MyReports() {
                   </div>
                   <div className="report-list-actions">
                     <span className={`status-badge ${badge.class}`}>{badge.label}</span>
-                    <button 
+                    <button
                       className="btn-view-small"
                       onClick={() => navigate(`/dashboard/reports/${report.id}`)}
                     >
                       View Report
                     </button>
-                    <button 
+                    <button
                       className="btn-icon-delete"
                       onClick={() => setDeleteConfirm(report.id)}
                       title="Delete"

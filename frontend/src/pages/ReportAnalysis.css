@@ -255,3 +255,64 @@
 .re-upload-section .btn:hover {
     background: #f8f9fa;
 }
+/* ===== Action buttons after analysis ===== */
+.re-upload-section {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+}
+
+.re-upload-section .btn {
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: inherit;
+}
+
+.re-upload-section .btn-outline {
+  background: white;
+  color: #0d5c63;
+  border: 1px solid #e2e8f0;
+}
+
+.re-upload-section .btn-outline:hover {
+  background: #f0fdfa;
+  border-color: #0d5c63;
+  transform: translateY(-1px);
+}
+
+.re-upload-section .btn-primary {
+  background: #0d5c63;
+  color: white;
+  border: none;
+  box-shadow: 0 2px 4px rgba(13, 92, 99, 0.2);
+}
+
+.re-upload-section .btn-primary:hover {
+  background: #0a464b;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(13, 92, 99, 0.3);
+}
+
+@media (max-width: 640px) {
+  .re-upload-section {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .re-upload-section .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

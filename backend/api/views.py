@@ -375,6 +375,7 @@ def report_trend(request):
 def extract_patient_info_regex(text):
     """
     Extract patient info using regex (fast, free, works ~70% of the time).
+    Handles spaced digits in age (e.g., "2 8" from PDF extraction).
     """
     patient_info = {
         'name': 'Unknown',
@@ -405,11 +406,14 @@ def extract_patient_info_regex(text):
         'haemoglobin', 'hemoglobin', 'rbc', 'wbc', 'platelet', 'total',
         'registered', 'reported', 'thanks', 'interpretation', 'instruments',
         'shan', 'shah', 'hiren', 'payal', 'vimal', 'pathologist', 'technician',
-        'dr', 'md', 'dmlt', 'bmlt',
+        'dr', 'md', 'dmlt', 'bmlt', 'city', 'care', 'national',
+        'institute', 'referred', 'admission', 'discharge', 'ipd',
+        'chief', 'complaints', 'history', 'examination', 'course',
+        'kumar', 'rai', 'sharma', 'yadav', 'gupta', 'verma', 'singh',  # temporary - remove these
     }
     
     def is_valid_name(candidate):
-        if not candidate or len(candidate) < 3 or len(candidate) > 50:
+        if not candidate or len(candidate) < 3 or len(candidate) > 60:
             return False
         words = [w.strip('.,;:-') for w in candidate.split()]
         words_lower = [w.lower() for w in words]
@@ -427,10 +431,15 @@ def extract_patient_info_regex(text):
             for p in candidate.split()
         )
     
-    # Name patterns
+    # ===== NAME EXTRACTION =====
+    # Try 3-word names first, then 2-word
     name_patterns = [
-        r'patient\s*(?:name)?\s*[:.\-]?\s*([A-Z][a-zA-Z]+(?:\s+[A-Z]\.?\s+)?[A-Z][a-zA-Z]+)',
-        r'\bname\s*[:.\-]?\s*([A-Z][a-zA-Z]+(?:\s+[A-Z]\.?\s+)?[A-Z][a-zA-Z]+)',
+        # 3-word name after "Patient Name:" or "Patient:"
+        r'patient\s*(?:name)?\s*[:.\-]?\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){2})',
+        # 2-3 word name
+        r'patient\s*(?:name)?\s*[:.\-]?\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,2})',
+        # "Name: ..." patterns
+        r'\bname\s*[:.\-]?\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,2})',
     ]
     for pattern in name_patterns:
         match = re.search(pattern, flat)
@@ -451,24 +460,32 @@ def extract_patient_info_regex(text):
                         patient_info['name'] = clean_name(stripped)
                         break
     
-    # Age
+    # ===== AGE EXTRACTION (handles spaced digits) =====
     age_patterns = [
-        r'\bage\s*[:.\-]?\s*(\d{1,3})\s*(?:years?|yrs?|y|ears?)?',
-        r'\b(\d{1,3})\s*(?:years?|yrs?|y\.?o\.?|y/o|ears?)\s*(?:old)?\b',
-        r'\b(\d{1,3})\s*[Yy]\b',
+        # Priority 1: "Age: 28" or "Age: 2 8" or "Age:28"
+        r'\bage\s*[:.\-]?\s*((?:\d\s*){1,3})\s*(?:years?|yrs?|years?\s*old|y\.?o\.?|y/o|ears?)?',
+        # Priority 2: "28 years" or "2 8 years" or "28 years old"
+        r'\b((?:\d\s*){1,3})\s*(?:years?\s*old|years?|yrs?|y\.?o\.?|y/o|ears?)\b',
     ]
-    for pattern in age_patterns:
-        match = re.search(pattern, flat, re.IGNORECASE)
-        if match:
-            try:
-                age_num = int(match.group(1))
-                if 0 < age_num <= 120:
-                    patient_info['age'] = str(age_num)
-                    break
-            except (ValueError, TypeError):
-                pass
     
-    # Gender
+    age_candidates = []
+    for pattern_idx, pattern in enumerate(age_patterns):
+        for match in re.finditer(pattern, flat, re.IGNORECASE):
+            try:
+                # Remove spaces between digits: "2 8" → "28"
+                digits_only = re.sub(r'\s+', '', match.group(1))
+                age_num = int(digits_only)
+                if 1 <= age_num <= 120:
+                    age_candidates.append((pattern_idx, age_num))
+            except (ValueError, TypeError):
+                continue
+    
+    if age_candidates:
+        # Prefer Pattern 1 (labeled "Age:") over Pattern 2
+        age_candidates.sort(key=lambda x: x[0])
+        patient_info['age'] = str(age_candidates[0][1])
+    
+    # ===== GENDER EXTRACTION =====
     gender_patterns = [
         r'\b(?:sex|gender)\s*[:.\-]?\s*(male|female|m|f|other|non-binary)\b',
         r'\b(?:sex|gender)\s*[:.\-]?\s*\|\s*(male|female|m|f)\b',
@@ -489,7 +506,6 @@ def extract_patient_info_regex(text):
                 break
     
     return patient_info
-
 
 def extract_patient_info_ai(text):
     """

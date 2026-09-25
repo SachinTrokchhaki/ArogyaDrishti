@@ -34,7 +34,12 @@ export default function DashboardHome() {
       setReports(list);
 
       const totalReports = list.length;
-      const analyzed = list.filter(r => r.processed_data?.results?.length > 0).length;
+      // ✅ FIXED: Count as analyzed if has results OR AI explanation
+      const analyzed = list.filter(r => {
+        const hasResults = (r.processed_data?.results || []).length > 0;
+        const hasExplanation = !!r.ai_explanation?.explanation;
+        return hasResults || hasExplanation;
+      }).length;
 
       let abnormalCount = 0;
       list.forEach(r => {
@@ -71,11 +76,16 @@ export default function DashboardHome() {
     fetchTrend(value);
   };
 
+  // ✅ FIXED: Uses AI explanation OR results
   const getStatusBadge = (report) => {
-    const hasResults = report.processed_data?.results?.length > 0;
-    return hasResults
-      ? { label: 'Analyzed', class: 'status-analyzed' }
-      : { label: 'Processing', class: 'status-processing' };
+    const hasResults = (report.processed_data?.results || []).length > 0;
+    const hasExplanation = !!report.ai_explanation?.explanation;
+    const isAnalyzed = hasResults || hasExplanation;
+
+    if (isAnalyzed) {
+      return { label: 'Analyzed', class: 'status-analyzed' };
+    }
+    return { label: 'Processing', class: 'status-processing' };
   };
 
   const formatDate = (dateStr) => {
@@ -294,6 +304,14 @@ export default function DashboardHome() {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="dashboard-disclaimer">
+        <span className="disclaimer-icon">⚠</span>
+        <span>
+          <strong>Disclaimer:</strong> This system provides educational information and is not a medical
+          diagnosis or a substitute for professional medical advice.
+        </span>
       </div>
     </div>
   );

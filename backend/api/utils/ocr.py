@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 import re
 
+
 class OCRProcessor:
     """Handle OCR operations for medical reports"""
     
@@ -21,21 +22,14 @@ class OCRProcessor:
         
         # Fix common OCR errors (0 → O, 1 → I, etc.)
         replacements = {
-            '0': 'O',
-            '1': 'I',
-            '3': 'B',
-            '5': 'S',
-            '8': 'B',
             '©': 'c',
             '®': 'r',
             '¢': 'c',
             '°': '',
             'µ': 'u',
-            '²': '2',
             '|': '',
             '—': '-',
             '–': '-',
-            '*': '',
         }
         
         for old, new in replacements.items():
@@ -85,10 +79,6 @@ class OCRProcessor:
             'Phosphatase': 'Phosphatase',
             'Tota1': 'Total',
             'Prote1n': 'Protein',
-            'Chotesterot': 'Cholesterol',
-            'HDL': 'HDL',
-            'LDL': 'LDL',
-            'VLDL': 'VLDL',
             'HbAIc': 'HbA1c',
             'G1ucose': 'Glucose',
             'Avorage': 'Average',
@@ -98,12 +88,100 @@ class OCRProcessor:
             'Co11ected': 'Collected',
             'Finat': 'Final',
             'A1e': 'A/c',
+            # ===== AGE-SPECIFIC FIXES =====
+            '2B years': '28 years',
+            '2B Years': '28 Years',
+            '2b years': '28 years',
+            '1B years': '18 years',
+            '3B years': '38 years',
+            '4B years': '48 years',
+            '5B years': '58 years',
+            '6B years': '68 years',
+            '2S years': '25 years',
+            '3S years': '35 years',
+            '4S years': '45 years',
+            '5S years': '55 years',
+            '2G years': '26 years',
+            '3G years': '36 years',
+            '4G years': '46 years',
+            '5G years': '56 years',
+            '2O years': '20 years',
+            '3O years': '30 years',
+            '4O years': '40 years',
+            '5O years': '50 years',
+            '6O years': '60 years',
+            '7O years': '70 years',
         }
         
         for old, new in medical_fixes.items():
             text = text.replace(old, new)
         
-        # Fix common patterns
+        # ===== FIX OCR LETTER-TO-DIGIT CONFUSION IN NUMERIC CONTEXTS =====
+        # Letters commonly misread as digits: B→8, G→6, S→5, O→0, I→1, Z→2
+        # Apply ONLY when the token looks like a number (starts with a digit)
+        
+        letter_to_digit = {
+            'B': '8', 'b': '8',
+            'G': '6', 'g': '6',
+            'S': '5', 's': '5',
+            'O': '0', 'o': '0',
+            'I': '1', 'l': '1',
+            'Z': '2', 'z': '2',
+            'D': '0',  # Sometimes D is misread as 0
+        }
+        
+        def fix_numeric_token(match):
+            """Fix a token that starts with a digit but contains letter-confusion."""
+            token = match.group(0)
+            # Only fix if token contains BOTH digits and letters (mixed)
+            has_digit = any(c.isdigit() for c in token)
+            has_letter = any(c.isalpha() for c in token)
+            if not (has_digit and has_letter):
+                return token
+            fixed = token
+            for letter, digit in letter_to_digit.items():
+                fixed = fixed.replace(letter, digit)
+            return fixed
+        
+        # Pattern: A token that starts with 1-3 digits, contains letters mixed in, ends with digits or letters
+        # Examples: "2B", "1B", "3O", "I4", "4S", "6G", "2024", "O92I"
+        # Match: starts with digit or letter, has 2-6 chars, contains both digits and letters
+        text = re.sub(
+            r'\b\d[A-Za-z0-9]{0,5}\b',
+            lambda m: fix_numeric_token(m) if any(c.isalpha() for c in m.group(0)) else m.group(0),
+            text
+        )
+        
+        # ===== FIX DATE PATTERNS =====
+        # OCR often reads dates wrong: "OS/O6/2O24" → "05/06/2024"
+        def fix_date(match):
+            fixed = match.group(0)
+            for letter, digit in letter_to_digit.items():
+                fixed = fixed.replace(letter, digit)
+            return fixed
+        
+        # Fix dates like DD/MM/YYYY
+        text = re.sub(
+            r'\b[A-Za-z0-9]{2}/[A-Za-z0-9]{2}/[A-Za-z0-9]{4}\b',
+            fix_date,
+            text
+        )
+        
+        # ===== FIX IPD/LAB ID PATTERNS =====
+        # "IPD-2O24-O92I" → "IPD-2024-0921"
+        def fix_ipd(match):
+            fixed = match.group(0)
+            for letter, digit in letter_to_digit.items():
+                fixed = fixed.replace(letter, digit)
+            return fixed
+        
+        text = re.sub(
+            r'\bIPD-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}\b',
+            fix_ipd,
+            text
+        )
+        
+        # ===== FIX COMMON PATTERNS =====
         text = re.sub(r'(\d+)\s*[-–—]\s*(\d+)', r'\1 - \2', text)
         text = re.sub(r'(\d+)\s*=\s*(\d+)', r'\1 - \2', text)
         text = re.sub(r'(\d+)\s*\+\s*(\d+)', r'\1 - \2', text)
