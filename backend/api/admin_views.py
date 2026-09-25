@@ -7,6 +7,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.db.models import Count, Q
 from django.utils import timezone
+from django.utils import timezone as tz
 from datetime import timedelta
 from .models import MedicalReport
 from .serializers import MedicalReportSerializer
@@ -43,6 +44,10 @@ def admin_login(request):
     if not user.is_active:
         return Response({'error': 'This account is inactive.'}, status=401)
         
+    # ✅ Update last_login timestamp
+    user.last_login = tz.now()
+    user.save(update_fields=['last_login'])
+    
     # ✅ Get avatar URL
     avatar_url = None
     try:

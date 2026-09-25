@@ -246,6 +246,10 @@ def login(request):
         return Response({
             'error': 'This account is inactive.'
         }, status=status.HTTP_401_UNAUTHORIZED)
+        
+    # ✅ Update last_login timestamp
+    user.last_login = timezone.now()
+    user.save(update_fields=['last_login'])
     
     refresh = RefreshToken.for_user(user)
     

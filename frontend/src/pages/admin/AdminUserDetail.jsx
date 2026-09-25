@@ -34,11 +34,18 @@ export default function AdminUserDetail() {
   };
 
   const formatDate = (str) => {
-    if (!str) return '—';
-    return new Date(str).toLocaleDateString('en-GB', {
-      day: '2-digit', month: 'short', year: 'numeric',
-    });
-  };
+    if (!str) return 'Never logged in';
+    try {
+        const date = new Date(str);
+        // Check if date is valid
+        if (isNaN(date.getTime())) return 'Never logged in';
+        return date.toLocaleDateString('en-GB', {
+            day: '2-digit', month: 'short', year: 'numeric',
+        });
+    } catch {
+        return 'Never logged in';
+    }
+};
 
   if (loading) return <div className="admin-content"><div className="admin-loading">Loading...</div></div>;
   if (error) return <div className="admin-content"><div className="admin-alert-error">{error}</div></div>;

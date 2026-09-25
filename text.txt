@@ -6,28 +6,3 @@ npm install lucide-react            # Icons (used in login/register)
 for admin
 tester@test.com
 Tester@1234
-
-############# working flow #################
-1. User uploads PDF/image
-       ↓
-2. ocr.py → Extracts raw text from file (OCR or PDF text)
-       ↓
-3. processor.py → Parses raw text into structured values:
-       {
-         "test_name": "Hemoglobin",
-         "value": "12.5",
-         "unit": "g/dL",
-         "status": "LOW",
-         "min_range": 13.0,
-         "max_range": 17.0
-       }
-       ↓
-4. classifier.py → Identifies document type (CBC, MRI, etc.)
-       ↓
-5. extract_patient_info() → Finds patient name, age, gender
-       ↓
-6. ai_explainer.py → AI GENERATES EXPLANATION
-       ↓
-7. Database saves everything
-       ↓
-8. Frontend displays formatted result
