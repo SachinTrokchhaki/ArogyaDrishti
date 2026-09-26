@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import api from '../services/api';
 
 const FileUpload = ({ onFileUploaded, onAnalysisComplete, onError }) => {
@@ -6,6 +6,9 @@ const FileUpload = ({ onFileUploaded, onAnalysisComplete, onError }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [dragging, setDragging] = useState(false);
+
+    // ✅ Prevents accidental double-submits (StrictMode / double-click)
+    const uploadingRef = useRef(false);
 
     const validateFile = (selectedFile) => {
         const validTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
@@ -41,29 +44,34 @@ const FileUpload = ({ onFileUploaded, onAnalysisComplete, onError }) => {
     };
 
     const handleUpload = async () => {
+        // ✅ Guard against concurrent uploads
+        if (uploadingRef.current) {
+            console.warn('Upload already in progress — ignoring duplicate call');
+            return;
+        }
+
         if (!file) {
             setError('Please select a file first');
             return;
         }
 
-        // Notify parent (switches to pipeline view)
+        uploadingRef.current = true;
+        setLoading(true);
+        setError(null);
+
+        // Notify parent (switch to pipeline view)
         if (onFileUploaded) {
             onFileUploaded(file);
         }
-
-        setLoading(true);
-        setError(null);
 
         const formData = new FormData();
         formData.append('file', file);
 
         try {
-            // ✅ THE ONLY UPLOAD CALL
             const response = await api.post('/upload/', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
             });
 
-            // Notify parent with result
             if (onAnalysisComplete) {
                 onAnalysisComplete(response.data);
             }
@@ -80,6 +88,7 @@ const FileUpload = ({ onFileUploaded, onAnalysisComplete, onError }) => {
             }
         } finally {
             setLoading(false);
+            uploadingRef.current = false;
         }
     };
 
@@ -113,6 +122,7 @@ const FileUpload = ({ onFileUploaded, onAnalysisComplete, onError }) => {
                 </div>
 
                 <button
+                    type="button"
                     onClick={handleUpload}
                     disabled={!file || loading}
                     className="upload-btn"

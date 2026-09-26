@@ -56,6 +56,33 @@ export const AdminAuthProvider = ({ children }) => {
     setAdmin(null);
   };
 
+  // ✅ Fetch fresh admin profile from backend
+  const refreshAdmin = async () => {
+    try {
+      const res = await adminApi.get('/admin/profile/');
+      setAdmin(res.data);
+      localStorage.setItem('admin_user', JSON.stringify(res.data));
+      return res.data;
+    } catch (err) {
+      console.error('refreshAdmin failed:', err);
+      return null;
+    }
+  };
+
+  // ✅ Safe updater that also persists to localStorage
+  const updateAdmin = (patchOrFn) => {
+    setAdmin((prev) => {
+      const next =
+        typeof patchOrFn === 'function'
+          ? patchOrFn(prev)
+          : { ...(prev || {}), ...patchOrFn };
+      try {
+        localStorage.setItem('admin_user', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
   return (
     <AdminAuthContext.Provider
       value={{
@@ -64,6 +91,8 @@ export const AdminAuthProvider = ({ children }) => {
         error,
         adminLogin,
         adminLogout,
+        refreshAdmin,
+        setAdmin: updateAdmin,
         isAdminAuthenticated: !!admin,
       }}
     >

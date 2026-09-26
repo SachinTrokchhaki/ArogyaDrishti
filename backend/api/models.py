@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils import timezone
 import uuid
 
 class UserProfile(models.Model):
@@ -61,8 +62,6 @@ class MedicalReport(models.Model):
     def __str__(self):
         return f"{self.file_name} - {self.user.username if self.user else 'Unknown'} - {self.created_at.strftime('%Y-%m-%d')}"
 
-
-
 # Automatically create UserProfile when a User is created
 @receiver(post_save, sender=User)
 def create_user_profile(sender, instance, created, **kwargs):
@@ -101,3 +100,20 @@ class ChatMessage(models.Model):
     def __str__(self):
         return f"Q: {self.question[:50]}..."
 
+class EmailVerification(models.Model):
+    """Stores a 6-digit verification code for a pending registration."""
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='email_verification'
+    )
+    code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    attempts = models.IntegerField(default=0)
+
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+
+    def __str__(self):
+        return f"{self.user.email} — {self.code}"

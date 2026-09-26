@@ -8,6 +8,9 @@ urlpatterns = [
     # ============ USER AUTH ============
     path('auth/register/', views.register, name='register'),
     path('auth/login/', views.login, name='login'),
+    path('auth/verify-email/', views.verify_email, name='verify_email'),
+    path('auth/resend-code/', views.resend_verification_code, name='resend_verification_code'),
+    path('auth/check-email/', views.check_email_availability, name='check_email_availability'),
     path('auth/logout/', views.logout, name='logout'),
 
     # ============ USER PROFILE ============
@@ -35,6 +38,10 @@ urlpatterns = [
     # ============ ADMIN ============
     path('admin/login/', admin_views.admin_login, name='admin_login'),
     path('admin/stats/', admin_views.admin_stats, name='admin_stats'),
+    path('admin/profile/', admin_views.admin_get_profile, name='admin_get_profile'),
+    path('admin/profile/update/', admin_views.admin_update_profile, name='admin_update_profile'),
+    path('admin/profile/upload-avatar/', admin_views.admin_upload_avatar, name='admin_upload_avatar'),
+    path('admin/profile/change-password/', admin_views.admin_change_password, name='admin_change_password'),
     path('admin/users/', admin_views.admin_users, name='admin_users'),
     path('admin/users/<int:user_id>/', admin_views.admin_user_detail, name='admin_user_detail'),
     path('admin/users/<int:user_id>/toggle-active/', admin_views.admin_toggle_user_active, name='admin_toggle_user_active'),

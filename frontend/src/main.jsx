@@ -12,6 +12,7 @@ import DashboardHome from './pages/dashboard/DashboardHome';
 import MyReports from './pages/dashboard/MyReports';
 import UploadReport from './pages/dashboard/UploadReport';
 import ReportDetail from './pages/dashboard/ReportDetail';
+import AdminProfile from './pages/admin/AdminProfile';
 import Profile from './pages/dashboard/Profile';
 import Assistant from './pages/dashboard/Assistant';
 import AdminLogin from './pages/admin/AdminLogin';
@@ -62,6 +63,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="users/:id" element={<AdminUserDetail />} />
               <Route path="reports" element={<AdminReports />} />
               <Route path="reports/:id" element={<AdminReportDetail />} />
+              <Route path="profile" element={<AdminProfile />} />
             </Route>
           </Routes>
         </AdminAuthProvider>

@@ -9,7 +9,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils import timezone as tz
 from datetime import timedelta
-from .models import MedicalReport
+from .models import MedicalReport, UserProfile
 from .serializers import MedicalReportSerializer
 
 
@@ -43,19 +43,18 @@ def admin_login(request):
 
     if not user.is_active:
         return Response({'error': 'This account is inactive.'}, status=401)
-        
-    # ✅ Update last_login timestamp
+
     user.last_login = tz.now()
     user.save(update_fields=['last_login'])
-    
-    # ✅ Get avatar URL
+
     avatar_url = None
     try:
-        if user.profile.avatar:
-            avatar_url = request.build_absolute_uri(user.profile.avatar.url)
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+        if profile.avatar:
+            avatar_url = request.build_absolute_uri(profile.avatar.url)
     except Exception:
-        pass
-    
+        avatar_url = None
+
     refresh = RefreshToken.for_user(user)
 
     return Response({
@@ -156,10 +155,10 @@ def admin_users(request):
     for u in users:
         avatar_url = None
         try:
-            if u.profile.avatar:
+            if hasattr(u, 'profile') and u.profile.avatar:
                 avatar_url = request.build_absolute_uri(u.profile.avatar.url)
         except Exception:
-            pass
+            avatar_url = None
 
         user_list.append({
             'id': u.id,
@@ -194,10 +193,10 @@ def admin_user_detail(request, user_id):
 
     avatar_url = None
     try:
-        if user.profile.avatar:
+        if hasattr(user, 'profile') and user.profile.avatar:
             avatar_url = request.build_absolute_uri(user.profile.avatar.url)
     except Exception:
-        pass
+        avatar_url = None
 
     reports_list = []
     for r in reports:
@@ -322,3 +321,141 @@ def admin_delete_report(request, report_id):
         return Response({'message': 'Report deleted successfully!'})
     except MedicalReport.DoesNotExist:
         return Response({'error': 'Report not found'}, status=404)
+
+
+# ============================================================
+# ============ ADMIN SELF-PROFILE ============
+# ============================================================
+
+def _safe_avatar_url(request, profile):
+    """Return avatar URL or None, safely handling missing files."""
+    if not profile or not profile.avatar:
+        return None
+    try:
+        return request.build_absolute_uri(profile.avatar.url)
+    except Exception:
+        return None
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def admin_get_profile(request):
+    """Get the logged-in admin's own profile."""
+    user = request.user
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+
+    return Response({
+        'id': user.id,
+        'username': user.username,
+        'email': user.email,
+        'first_name': user.first_name,
+        'last_name': user.last_name,
+        'is_staff': user.is_staff,
+        'is_superuser': user.is_superuser,
+        'date_joined': user.date_joined,
+        'last_login': user.last_login,
+        'bio': profile.bio,
+        'phone': profile.phone,
+        'avatar': _safe_avatar_url(request, profile),
+    })
+
+
+@api_view(['PUT', 'PATCH'])
+@permission_classes([IsAdminUser])
+def admin_update_profile(request):
+    """Update the admin's own profile — email/username cannot be changed."""
+    user = request.user
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+
+    data = request.data
+
+    if 'first_name' in data:
+        user.first_name = data['first_name']
+    if 'last_name' in data:
+        user.last_name = data['last_name']
+    if 'bio' in data:
+        profile.bio = data['bio']
+    if 'phone' in data:
+        profile.phone = data['phone']
+
+    user.save()
+    profile.save()
+
+    return Response({
+        'id': user.id,
+        'username': user.username,
+        'email': user.email,
+        'first_name': user.first_name,
+        'last_name': user.last_name,
+        'bio': profile.bio,
+        'phone': profile.phone,
+        'avatar': _safe_avatar_url(request, profile),
+        'message': 'Profile updated successfully!',
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def admin_upload_avatar(request):
+    """Upload admin's avatar."""
+    try:
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+
+        avatar = request.FILES.get('avatar')
+        if not avatar:
+            return Response({'error': 'No avatar file provided'}, status=400)
+
+        allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
+        if avatar.content_type not in allowed_types:
+            return Response(
+                {'error': 'Invalid file type. Use JPEG, PNG, GIF, or WEBP'},
+                status=400,
+            )
+
+        if avatar.size > 5 * 1024 * 1024:
+            return Response({'error': 'File too large. Max 5MB'}, status=400)
+
+        old_avatar = profile.avatar
+
+        profile.avatar = avatar
+        profile.save()
+
+        if old_avatar and old_avatar.name != profile.avatar.name:
+            try:
+                old_avatar.delete(save=False)
+            except Exception:
+                pass
+
+        return Response({
+            'message': 'Avatar uploaded successfully!',
+            'avatar_url': _safe_avatar_url(request, profile),
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return Response({'error': str(e)}, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def admin_change_password(request):
+    """Change the admin's own password."""
+    old_password = request.data.get('old_password')
+    password = request.data.get('new_password')
+    password2 = request.data.get('confirm_password')
+    errors = {}
+
+    if not old_password or not request.user.check_password(old_password):
+        errors['old_password'] = ['Current password is incorrect.']
+    if not password:
+        errors['password'] = ['Password is required.']
+    elif len(password) < 8:
+        errors['password'] = ['Password must be at least 8 characters long.']
+    if password != password2:
+        errors['password2'] = ['Passwords do not match.']
+    if errors:
+        return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+
+    request.user.set_password(password)
+    request.user.save(update_fields=['password'])
+    return Response({'message': 'Password changed successfully.'})

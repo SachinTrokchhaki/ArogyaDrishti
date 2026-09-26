@@ -7,42 +7,83 @@ import { useAuth } from "../context/AuthContext";
 
 export default function Register() {
   const navigate = useNavigate();
-  const { register, isAuthenticated } = useAuth();
-  
-  const [form, setForm] = useState({ 
-    username: "", 
-    email: "", 
-    password: "", 
-    password2: "" 
+  const { register, verifyEmail, resendCode, checkEmail, isAuthenticated } = useAuth();
+
+  const [step, setStep] = useState("form");
+  const [form, setForm] = useState({
+    username: "",
+    email: "",
+    password: "",
+    password2: "",
   });
+  const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [info, setInfo] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({});
   const [passwordRequirements, setPasswordRequirements] = useState({
     length: false,
     uppercase: false,
     lowercase: false,
     number: false,
-    special: false
+    special: false,
+  });
+
+  // ✅ Real-time email status
+  const [emailStatus, setEmailStatus] = useState({
+    checking: false,
+    valid: null,
+    available: null,
+    message: "",
   });
 
   useEffect(() => {
-    if (isAuthenticated) {
-      navigate("/");
-    }
+    if (isAuthenticated) navigate("/");
   }, [isAuthenticated, navigate]);
+
+  // ✅ Debounced email availability check
+  useEffect(() => {
+    const email = form.email.trim();
+
+    if (!email) {
+      setEmailStatus({ checking: false, valid: null, available: null, message: "" });
+      return;
+    }
+
+    const basicPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!basicPattern.test(email)) {
+      setEmailStatus({
+        checking: false,
+        valid: false,
+        available: null,
+        message: "Please enter a valid email address.",
+      });
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setEmailStatus((s) => ({ ...s, checking: true }));
+      const res = await checkEmail(email);
+      setEmailStatus({
+        checking: false,
+        valid: res.valid,
+        available: res.available,
+        message: res.message || "",
+      });
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [form.email, checkEmail]);
 
   const update = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
-    
-    // Real-time password validation
-    if (field === 'password') {
+    if (field === "password") {
       setPasswordRequirements({
         length: value.length >= 8,
         uppercase: /[A-Z]/.test(value),
         lowercase: /[a-z]/.test(value),
         number: /\d/.test(value),
-        special: /[!@#$%^&*(),.?":{}|<>]/.test(value)
+        special: /[!@#$%^&*(),.?":{}|<>]/.test(value),
       });
     }
   };
@@ -56,14 +97,18 @@ export default function Register() {
       setError("Please fill in all the fields.");
       return;
     }
-
     if (form.password.length < 8) {
       setError("Password must be at least 8 characters long.");
       return;
     }
-
     if (form.password !== form.password2) {
       setError("Passwords do not match.");
+      return;
+    }
+
+    // ✅ Block submit if email invalid or taken
+    if (emailStatus.valid === false || emailStatus.available === false) {
+      setError(emailStatus.message || "Please fix the email field.");
       return;
     }
 
@@ -74,22 +119,59 @@ export default function Register() {
         email: form.email,
         password: form.password,
         password2: form.password2,
-        first_name: form.username.split(' ')[0] || form.username,
-        last_name: form.username.split(' ').slice(1).join(' ') || '',
+        first_name: form.username.split(" ")[0] || form.username,
+        last_name: form.username.split(" ").slice(1).join(" ") || "",
       });
 
-      if (result.success) {
+      if (result.success && result.requiresVerification) {
+        setStep("verify");
+        setInfo(`We sent a 6-digit code to ${result.email}`);
+      } else if (result.success) {
         navigate("/login");
       } else {
-        if (result.errors) {
-          setFieldErrors(result.errors);
-        }
-        setError(result.errors?.email?.[0] || "Registration failed. Please try again.");
+        if (result.errors) setFieldErrors(result.errors);
+        setError(
+          result.errors?.email?.[0] ||
+            result.errors?.username?.[0] ||
+            "Registration failed. Please try again."
+        );
       }
     } catch (err) {
       setError("Registration failed. Please try again.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleVerify = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setInfo(null);
+
+    if (code.length !== 6) {
+      setError("Please enter the 6-digit code.");
+      return;
+    }
+
+    setLoading(true);
+    const result = await verifyEmail(form.email, code);
+    setLoading(false);
+
+    if (result.success) {
+      navigate("/dashboard");
+    } else {
+      setError(result.error);
+    }
+  };
+
+  const handleResend = async () => {
+    setError(null);
+    setInfo(null);
+    const result = await resendCode(form.email);
+    if (result.success) {
+      setInfo("New code sent! Check your inbox.");
+    } else {
+      setError(result.error);
     }
   };
 
@@ -99,143 +181,226 @@ export default function Register() {
       <div className="auth-page">
         <div className="auth-container">
           <div className="auth-header">
-  <div className="auth-logo">
-    <span className="auth-logo-mark">♥</span>
-
-    <div>
-      <div className="auth-logo-name">
-        <span className="logo-arogya">Arogya</span>
-        <span className="logo-drishti">Drishti</span>
-      </div>
-
-      <div className="auth-logo-sub">
-        REPORT ANALYSIS
-      </div>
-    </div>
-  </div>
-
-  <p className="auth-brand-tagline">
-    Understand Your Health Reports, Simply.
-  </p>
-</div>
+            <div className="auth-logo">
+              <span className="auth-logo-mark">♥</span>
+              <div>
+                <div className="auth-logo-name">
+                  <span className="logo-arogya">Arogya</span>
+                  <span className="logo-drishti">Drishti</span>
+                </div>
+                <div className="auth-logo-sub">REPORT ANALYSIS</div>
+              </div>
+            </div>
+            <p className="auth-brand-tagline">
+              Understand Your Health Reports, Simply.
+            </p>
+          </div>
 
           <div className="auth-card">
-            <h1 className="auth-title">Create your account</h1>
-            <p className="auth-subtitle">It takes less than a minute to get started.</p>
+            {step === "form" && (
+              <>
+                <h1 className="auth-title">Create your account</h1>
+                <p className="auth-subtitle">
+                  It takes less than a minute to get started.
+                </p>
 
-            <form onSubmit={handleSubmit} className="auth-form" noValidate>
-              <div className="form-group">
-                <label htmlFor="username" className="form-label">Username</label>
-                <input
-                  id="username"
-                  autoComplete="username"
-                  placeholder="john_doe"
-                  value={form.username}
-                  onChange={(e) => update("username", e.target.value)}
-                  className="form-input form-input-no-icon"
-                  required
-                />
-                {fieldErrors.username && (
-                  <span className="field-error">{fieldErrors.username[0]}</span>
-                )}
-              </div>
+                <form onSubmit={handleSubmit} className="auth-form" noValidate>
+                  <div className="form-group">
+                    <label htmlFor="username" className="form-label">Username</label>
+                    <input
+                      id="username"
+                      autoComplete="username"
+                      placeholder="john_doe"
+                      value={form.username}
+                      onChange={(e) => update("username", e.target.value)}
+                      className="form-input form-input-no-icon"
+                      required
+                    />
+                    {fieldErrors.username && (
+                      <span className="field-error">{fieldErrors.username[0]}</span>
+                    )}
+                  </div>
 
-              <div className="form-group">
-                <label htmlFor="email" className="form-label">Email</label>
-                <input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  value={form.email}
-                  onChange={(e) => update("email", e.target.value)}
-                  className="form-input form-input-no-icon"
-                  required
-                />
-                {fieldErrors.email && (
-                  <span className="field-error">{fieldErrors.email[0]}</span>
-                )}
-              </div>
+                  <div className="form-group">
+                    <label htmlFor="email" className="form-label">Email</label>
+                    <input
+                      id="email"
+                      type="email"
+                      autoComplete="email"
+                      placeholder="you@example.com"
+                      value={form.email}
+                      onChange={(e) => update("email", e.target.value)}
+                      className="form-input form-input-no-icon"
+                      required
+                    />
 
-              <div className="form-row">
-                <div className="form-group">
-                  <label htmlFor="password" className="form-label">Password</label>
-                  <input
-                    id="password"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder="••••••••"
-                    value={form.password}
-                    onChange={(e) => update("password", e.target.value)}
-                    className="form-input form-input-no-icon"
-                    required
-                  />
-                  {fieldErrors.password && (
-                    <span className="field-error">{fieldErrors.password[0]}</span>
+                    {/* ✅ Real-time email status */}
+                    {emailStatus.checking && (
+                      <span className="field-hint">
+                        <span className="spinner-inline">⟳</span> Checking…
+                      </span>
+                    )}
+                    {!emailStatus.checking && emailStatus.message && (
+                      <span
+                        className={
+                          emailStatus.available
+                            ? "field-success"
+                            : emailStatus.valid === false || emailStatus.available === false
+                            ? "field-error"
+                            : "field-hint"
+                        }
+                      >
+                        {emailStatus.available
+                          ? "✅ "
+                          : emailStatus.valid === false || emailStatus.available === false
+                          ? "❌ "
+                          : ""}
+                        {emailStatus.message}
+                      </span>
+                    )}
+
+                    {fieldErrors.email && (
+                      <span className="field-error">{fieldErrors.email[0]}</span>
+                    )}
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label htmlFor="password" className="form-label">Password</label>
+                      <input
+                        id="password"
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder="••••••••"
+                        value={form.password}
+                        onChange={(e) => update("password", e.target.value)}
+                        className="form-input form-input-no-icon"
+                        required
+                      />
+                      {fieldErrors.password && (
+                        <span className="field-error">{fieldErrors.password[0]}</span>
+                      )}
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="password2" className="form-label">Confirm password</label>
+                      <input
+                        id="password2"
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder="••••••••"
+                        value={form.password2}
+                        onChange={(e) => update("password2", e.target.value)}
+                        className="form-input form-input-no-icon"
+                        required
+                      />
+                      {fieldErrors.password2 && (
+                        <span className="field-error">{fieldErrors.password2[0]}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {form.password && (
+                    <div className="password-requirements">
+                      <p className="requirements-title">Password must contain:</p>
+                      <ul>
+                        <li className={passwordRequirements.length ? "met" : ""}>
+                          {passwordRequirements.length ? "✅" : "❌"} At least 8 characters
+                        </li>
+                        <li className={passwordRequirements.uppercase ? "met" : ""}>
+                          {passwordRequirements.uppercase ? "✅" : "❌"} One uppercase letter
+                        </li>
+                        <li className={passwordRequirements.lowercase ? "met" : ""}>
+                          {passwordRequirements.lowercase ? "✅" : "❌"} One lowercase letter
+                        </li>
+                        <li className={passwordRequirements.number ? "met" : ""}>
+                          {passwordRequirements.number ? "✅" : "❌"} One number
+                        </li>
+                        <li className={passwordRequirements.special ? "met" : ""}>
+                          {passwordRequirements.special ? "✅" : "❌"} One special character
+                        </li>
+                      </ul>
+                    </div>
                   )}
-                </div>
-                <div className="form-group">
-                  <label htmlFor="password2" className="form-label">Confirm password</label>
-                  <input
-                    id="password2"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder="••••••••"
-                    value={form.password2}
-                    onChange={(e) => update("password2", e.target.value)}
-                    className="form-input form-input-no-icon"
-                    required
-                  />
-                  {fieldErrors.password2 && (
-                    <span className="field-error">{fieldErrors.password2[0]}</span>
-                  )}
-                </div>
-              </div>
 
-              {/* Password Requirements */}
-              {form.password && (
-                <div className="password-requirements">
-                  <p className="requirements-title">Password must contain:</p>
-                  <ul>
-                    <li className={passwordRequirements.length ? 'met' : ''}>
-                      {passwordRequirements.length ? '✅' : '❌'} At least 8 characters
-                    </li>
-                    <li className={passwordRequirements.uppercase ? 'met' : ''}>
-                      {passwordRequirements.uppercase ? '✅' : '❌'} One uppercase letter
-                    </li>
-                    <li className={passwordRequirements.lowercase ? 'met' : ''}>
-                      {passwordRequirements.lowercase ? '✅' : '❌'} One lowercase letter
-                    </li>
-                    <li className={passwordRequirements.number ? 'met' : ''}>
-                      {passwordRequirements.number ? '✅' : '❌'} One number
-                    </li>
-                    <li className={passwordRequirements.special ? 'met' : ''}>
-                      {passwordRequirements.special ? '✅' : '❌'} One special character
-                    </li>
-                  </ul>
-                </div>
-              )}
+                  {error && <div className="error-message">{error}</div>}
 
-              {error && (
-                <div className="error-message">{error}</div>
-              )}
+                  <button type="submit" disabled={loading} className="submit-button">
+                    {loading && <span className="spinner">⟳</span>}
+                    {loading ? "Creating account…" : "Register"}
+                  </button>
+                </form>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="submit-button"
-              >
-                {loading && <span className="spinner">⟳</span>}
-                {loading ? "Creating account…" : "Register"}
-              </button>
-            </form>
+                <p className="auth-footer-text">
+                  Already have an account?{" "}
+                  <Link to="/login" className="auth-link">Log in</Link>
+                </p>
+              </>
+            )}
 
-            <p className="auth-footer-text">
-              Already have an account?{" "}
-              <Link to="/login" className="auth-link">
-                Log in
-              </Link>
-            </p>
+            {step === "verify" && (
+              <>
+                <h1 className="auth-title">Verify your email</h1>
+                <p className="auth-subtitle">
+                  Enter the 6-digit code we sent to <strong>{form.email}</strong>.
+                </p>
+
+                <form onSubmit={handleVerify} className="auth-form" noValidate>
+                  <div className="form-group">
+                    <label htmlFor="code" className="form-label">Verification code</label>
+                    <input
+                      id="code"
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      autoComplete="one-time-code"
+                      placeholder="123456"
+                      value={code}
+                      onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                      className="form-input form-input-no-icon code-input"
+                      required
+                      autoFocus
+                    />
+                  </div>
+
+                  {info && <div className="info-message">{info}</div>}
+                  {error && <div className="error-message">{error}</div>}
+
+                  <button type="submit" disabled={loading} className="submit-button">
+                    {loading && <span className="spinner">⟳</span>}
+                    {loading ? "Verifying…" : "Verify & Continue"}
+                  </button>
+
+                  <div style={{ textAlign: "center", marginTop: "12px" }}>
+                    <button
+                      type="button"
+                      onClick={handleResend}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#0d5c63",
+                        cursor: "pointer",
+                        fontSize: "14px",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      Resend code
+                    </button>
+                  </div>
+                </form>
+
+                <p className="auth-footer-text">
+                  Wrong email?{" "}
+                  <button
+                    type="button"
+                    onClick={() => { setStep("form"); setCode(""); setError(null); setInfo(null); }}
+                    className="auth-link"
+                    style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                  >
+                    Go back
+                  </button>
+                </p>
+              </>
+            )}
           </div>
         </div>
       </div>

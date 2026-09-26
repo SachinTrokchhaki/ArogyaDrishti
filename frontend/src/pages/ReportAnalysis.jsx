@@ -5,7 +5,6 @@ import Footer from '../components/common/Footer';
 import FileUpload from '../components/FileUpload';
 import ProcessingPipeline from '../components/ProcessingPipeline';
 import ResultsDisplay from './ResultsDisplay';
-import api from '../services/api';
 import './ReportAnalysis.css';
 
 const ReportAnalysis = () => {
@@ -16,43 +15,33 @@ const ReportAnalysis = () => {
   const [uploadedFile, setUploadedFile] = useState(null);
   const [error, setError] = useState(null);
 
-  const handleFileUploaded = async (file) => {
+  // ✅ Just switch views — FileUpload handles the actual upload internally
+  const handleFileUploaded = (file) => {
     setUploadedFile(file);
     setShowUpload(false);
     setShowPipeline(true);
     setError(null);
+  };
 
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await api.post('/upload/', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-
-      setShowPipeline(false);
-      setResult(response.data);
-      
-    } catch (error) {
-      console.error('Upload error:', error);
-      setShowPipeline(false);
-      setShowUpload(true);
-      
-      if (error.response?.status === 401) {
-        setError('Please login to upload reports.');
-        setTimeout(() => {
-          navigate('/login');
-        }, 2000);
-      } else {
-        setError(error.response?.data?.error || 'Failed to process report. Please try again.');
-      }
-    }
+  // ✅ Called by FileUpload when the API response arrives
+  const handleAnalysisComplete = (data) => {
+    setShowPipeline(false);
+    setResult(data);
   };
 
   const handlePipelineComplete = () => {
     setShowPipeline(false);
+  };
+
+  const handleError = (errorMessage) => {
+    setShowPipeline(false);
+    setShowUpload(true);
+    setError(errorMessage);
+
+    // Redirect to login if unauthorized
+    if (errorMessage?.toLowerCase().includes('login')) {
+      setTimeout(() => navigate('/login'), 2000);
+    }
   };
 
   const handleReset = () => {
@@ -90,8 +79,10 @@ const ReportAnalysis = () => {
             )}
 
             {showUpload && (
-              <FileUpload 
+              <FileUpload
                 onFileUploaded={handleFileUploaded}
+                onAnalysisComplete={handleAnalysisComplete}
+                onError={handleError}
               />
             )}
 
@@ -102,18 +93,18 @@ const ReportAnalysis = () => {
             {result && (
               <>
                 <ResultsDisplay data={result} />
-                
+
                 {/* ✅ Action buttons after analysis */}
                 <div className="re-upload-section">
-                  <button 
-                    className="btn btn-outline" 
+                  <button
+                    className="btn btn-outline"
                     onClick={handleReset}
                   >
                     📤 Upload Another Report
                   </button>
-                  
+
                   {result.id && (
-                    <button 
+                    <button
                       className="btn btn-primary"
                       onClick={handleViewFullReport}
                     >
@@ -153,7 +144,7 @@ const ReportAnalysis = () => {
           )}
 
           <div className="analysis-disclaimer">
-            <p>⚠️ <strong>Disclaimer:</strong> This tool provides analysis and explanations for educational purposes only. 
+            <p>⚠️ <strong>Disclaimer:</strong> This tool provides analysis and explanations for educational purposes only.
             Always consult a qualified healthcare professional for medical advice.</p>
           </div>
         </div>

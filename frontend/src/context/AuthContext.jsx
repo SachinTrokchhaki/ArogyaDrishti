@@ -45,6 +45,7 @@ export const AuthProvider = ({ children }) => {
     initAuth();
   }, []);
 
+  // ===== LOGIN =====
   const login = async (email, password) => {
     try {
       setError(null);
@@ -68,22 +69,51 @@ export const AuthProvider = ({ children }) => {
       return { success: true, user: fullUser };
     } catch (error) {
       const errorMessage = error.response?.data?.error || 'Login failed. Please try again.';
+      const requiresVerification = error.response?.data?.requires_verification === true;
+      const email = error.response?.data?.email;
+
       setError(errorMessage);
-      return { success: false, error: errorMessage };
+      return {
+        success: false,
+        error: errorMessage,
+        requiresVerification,
+        email,
+      };
     }
   };
 
+  // ===== REGISTER (creates inactive user + sends verification code) =====
   const register = async (userData) => {
     try {
       setError(null);
       const response = await api.post('/auth/register/', userData);
-      const { access, refresh } = response.data;
+
+      return {
+        success: true,
+        requiresVerification: response.data.requires_verification === true,
+        email: response.data.email,
+        message: response.data.message,
+      };
+    } catch (error) {
+      const errors = error.response?.data || {};
+      setError(errors);
+      return { success: false, errors };
+    }
+  };
+
+  // ===== VERIFY EMAIL with 6-digit code → logs the user in =====
+  const verifyEmail = async (email, code) => {
+    try {
+      setError(null);
+      const response = await api.post('/auth/verify-email/', { email, code });
+      const { access, refresh, user: verifiedUser } = response.data;
 
       localStorage.setItem('access_token', access);
       localStorage.setItem('refresh_token', refresh);
       api.defaults.headers.common['Authorization'] = `Bearer ${access}`;
 
-      let fullUser = response.data.user;
+      // Fetch full profile (avatar etc.)
+      let fullUser = verifiedUser;
       try {
         const profileRes = await api.get('/auth/profile/');
         fullUser = profileRes.data;
@@ -94,12 +124,42 @@ export const AuthProvider = ({ children }) => {
 
       return { success: true, user: fullUser };
     } catch (error) {
-      const errors = error.response?.data || {};
-      setError(errors);
-      return { success: false, errors };
+      const errorMessage = error.response?.data?.error || 'Verification failed.';
+      setError(errorMessage);
+      return { success: false, error: errorMessage };
     }
   };
 
+  // ===== RESEND verification code =====
+  const resendCode = async (email) => {
+    try {
+      setError(null);
+      const response = await api.post('/auth/resend-code/', { email });
+      return { success: true, message: response.data.message };
+    } catch (error) {
+      const errorMessage = error.response?.data?.error || 'Could not resend code.';
+      setError(errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  };
+
+  // ✅ Check email availability (for register form)
+  const checkEmail = async (email) => {
+  try {
+    const response = await api.get('/auth/check-email/', {
+        params: { email },
+      });
+      return response.data;  // { valid, available, message }
+    } catch (error) {
+      return {
+        valid: false,
+        available: false,
+        message: 'Could not verify email right now.',
+      };
+    }
+  };
+
+  // ===== LOGOUT =====
   const logout = async () => {
     try {
       const refreshToken = localStorage.getItem('refresh_token');
@@ -117,6 +177,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // ===== REFRESH USER (used after profile update) =====
   const refreshUser = async () => {
     try {
       const response = await api.get('/auth/profile/');
@@ -136,6 +197,9 @@ export const AuthProvider = ({ children }) => {
     error,
     login,
     register,
+    verifyEmail,
+    resendCode,   
+    checkEmail,
     logout,
     refreshUser,
     isAuthenticated: !!user,

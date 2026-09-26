@@ -47,6 +47,7 @@ export default function AdminLayout() {
     { path: '/admin', label: 'Overview', icon: '▦', exact: true },
     { path: '/admin/users', label: 'Users', icon: '👥' },
     { path: '/admin/reports', label: 'Reports', icon: '📊' },
+    { path: '/admin/profile', label: 'My Profile', icon: '👤' },
   ];
 
   const isActive = (item) => {

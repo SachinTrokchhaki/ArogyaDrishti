@@ -9,6 +9,9 @@ from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.core.mail import send_mail
 from django.conf import settings
+from django.utils import timezone
+from datetime import timedelta 
+import random
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 import uuid
@@ -21,12 +24,11 @@ import os
 import re
 import json
 
-from .models import MedicalReport, UserProfile, ChatMessage
+from .models import MedicalReport, UserProfile, ChatMessage, EmailVerification
 from .serializers import MedicalReportSerializer, ChatMessageSerializer
 from django.utils import timezone
 from datetime import timedelta
 
-from .models import MedicalReport, UserProfile
 from .serializers import MedicalReportSerializer
 from .utils.ocr import OCRProcessor
 from .utils.processor import ReportProcessor
@@ -203,6 +205,82 @@ Note: This is educational information, not a medical diagnosis. Consult a doctor
         print(f"❌ Email failed for {user.email}: {e}")
         return False
 
+# ============ EMAIL VERIFICATION HELPER ============
+
+def is_valid_email_format(email):
+    """Basic RFC-ish email format check."""
+    pattern = r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
+    return bool(re.match(pattern, email or ''))
+
+def send_verification_email(user, code):
+    """Send the 6-digit code to the user's email."""
+    try:
+        subject = "🔐 Verify your ArogyaDrishti account"
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="UTF-8"></head>
+        <body style="margin:0; padding:0; background:#f0fdfa; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:40px 20px;">
+            <tr><td align="center">
+              <table role="presentation" width="520" cellpadding="0" cellspacing="0"
+                     style="max-width:520px; background:#fff; border-radius:16px; overflow:hidden; box-shadow:0 4px 20px rgba(13,92,99,0.08);">
+                <tr>
+                  <td style="background:linear-gradient(135deg,#0d5c63,#0a464b); padding:28px 36px;">
+                    <span style="display:inline-block;width:40px;height:40px;background:#fff;color:#0d5c63;
+                                 border-radius:50%;text-align:center;line-height:40px;font-size:20px;font-weight:bold;">♥</span>
+                    <span style="color:#fff;font-size:20px;font-weight:700;margin-left:10px;">Arogya<span style="color:#5eead4;">Drishti</span></span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:36px;">
+                    <h1 style="color:#0f172a;font-size:22px;margin:0 0 8px 0;font-weight:700;">Verify your email</h1>
+                    <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px 0;">
+                      Hi {user.first_name or user.username}, use the code below to finish creating your ArogyaDrishti account.
+                    </p>
+                    <div style="background:#f0fdfa; border:1px solid #ccfbf1; border-radius:12px; padding:24px; text-align:center; margin-bottom:24px;">
+                      <p style="color:#0d5c63;font-size:12px;font-weight:700;letter-spacing:2px;margin:0 0 8px 0;text-transform:uppercase;">Your code</p>
+                      <p style="color:#0f172a;font-size:36px;font-weight:800;letter-spacing:8px;margin:0;font-family:'Courier New',monospace;">{code}</p>
+                    </div>
+                    <p style="color:#94a3b8;font-size:13px;margin:0 0 8px 0;">This code expires in <strong>15 minutes</strong>.</p>
+                    <p style="color:#94a3b8;font-size:13px;margin:0;">If you didn't request this, you can ignore this email.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="background:#f8fafc; padding:16px 36px; text-align:center; border-top:1px solid #e2e8f0;">
+                    <p style="color:#94a3b8;font-size:11px;margin:0;">© {timezone.now().year} ArogyaDrishti</p>
+                  </td>
+                </tr>
+              </table>
+            </td></tr>
+          </table>
+        </body>
+        </html>
+        """
+
+        plain = f"""Hi {user.first_name or user.username},
+
+Your ArogyaDrishti verification code is: {code}
+
+This code expires in 15 minutes. If you didn't request this, ignore this email.
+
+- ArogyaDrishti Team
+"""
+
+        send_mail(
+            subject=subject,
+            message=plain,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            html_message=html_content,
+            fail_silently=False,
+        )
+        print(f"✅ Verification code sent to {user.email}")
+        return True
+    except Exception as e:
+        print(f"❌ Verification email failed for {user.email}: {e}")
+        return False
+    
 # ============ USER PROFILE VIEWS ============
 
 @api_view(['GET'])
@@ -229,7 +307,6 @@ def get_user_profile(request):
         'phone': profile.phone,
         'avatar': avatar_url,
     })
-
 
 @api_view(['PUT', 'PATCH'])
 @permission_classes([IsAuthenticated])
@@ -267,7 +344,6 @@ def update_user_profile(request):
         'avatar': avatar_url,
         'message': 'Profile updated successfully!'
     })
-
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -308,7 +384,6 @@ def upload_avatar(request):
     except Exception as e:
         return Response({'error': str(e)}, status=500)
 
-
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def change_password(request):
@@ -333,51 +408,75 @@ def change_password(request):
     request.user.save(update_fields=['password'])
     return Response({'message': 'Password changed successfully.'})
 
-
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register(request):
-    """Register a user and return JWT tokens."""
+    """
+    Register a user with email verification.
+    - Creates an inactive user
+    - Generates a 6-digit code (valid 15 min)
+    - Sends the code via email
+    - Returns success so the frontend can show the verify step
+    """
     username = request.data.get('username') or request.data.get('email')
-    email = request.data.get('email')
+    email = (request.data.get('email') or '').strip().lower()
     password = request.data.get('password')
     password2 = request.data.get('password2') or request.data.get('confirm_password')
     first_name = request.data.get('first_name', '')
     last_name = request.data.get('last_name', '')
     errors = {}
 
+    # ===== Validate inputs =====
     if not username:
         errors['username'] = ['Username is required.']
     if not email:
         errors['email'] = ['Email is required.']
+    elif not is_valid_email_format(email):
+        errors['email'] = ['Please enter a valid email address.']
     if not password:
         errors['password'] = ['Password is required.']
     elif len(password) < 8:
         errors['password'] = ['Password must be at least 8 characters long.']
     if password != password2:
         errors['password2'] = ['Passwords do not match.']
+
+    # ===== Uniqueness checks =====
     if username and User.objects.filter(username=username).exists():
         errors['username'] = ['A user with this username already exists.']
-    if email and User.objects.filter(email=email).exists():
-        errors['email'] = ['A user with this email already exists.']
+    if email and User.objects.filter(email__iexact=email).exists():
+        errors['email'] = ['An account with this email already exists. Try logging in instead.']
+
     if errors:
         return Response(errors, status=status.HTTP_400_BAD_REQUEST)
 
+    # ===== Create inactive user =====
     user = User.objects.create_user(
-        username=username, email=email, password=password,
-        first_name=first_name, last_name=last_name,
+        username=username,
+        email=email,
+        password=password,
+        first_name=first_name,
+        last_name=last_name,
+        is_active=False,          # ⚠️ inactive until verified
     )
-    refresh = RefreshToken.for_user(user)
-    return Response({
-        'user': {
-            'id': user.id, 'username': user.username, 'email': user.email,
-            'first_name': user.first_name, 'last_name': user.last_name,
-        },
-        'refresh': str(refresh),
-        'access': str(refresh.access_token),
-        'message': 'Registration successful!',
-    }, status=status.HTTP_201_CREATED)
 
+    # ===== Generate 6-digit code =====
+    code = f"{random.randint(0, 999999):06d}"
+    expires_at = timezone.now() + timedelta(minutes=15)
+
+    EmailVerification.objects.update_or_create(
+        user=user,
+        defaults={'code': code, 'expires_at': expires_at, 'attempts': 0},
+    )
+
+    # ===== Send email =====
+    sent = send_verification_email(user, code)
+
+    return Response({
+        'message': 'Account created! Check your email for the 6-digit code.',
+        'email': email,
+        'email_sent': sent,
+        'requires_verification': True,
+    }, status=status.HTTP_201_CREATED)
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -406,9 +505,18 @@ def login(request):
         }, status=status.HTTP_401_UNAUTHORIZED)
     
     if not user.is_active:
-        return Response({
-            'error': 'This account is inactive.'
-        }, status=status.HTTP_401_UNAUTHORIZED)
+        # Check if it's an unverified email
+        try:
+            v = user.email_verification
+            return Response({
+                'error': 'Your email is not verified yet. Please enter the code we sent you, or request a new one.',
+                'requires_verification': True,
+                'email': user.email,
+            }, status=status.HTTP_403_FORBIDDEN)
+        except EmailVerification.DoesNotExist:
+            return Response({
+                'error': 'This account is inactive. Contact support.'
+            }, status=status.HTTP_403_FORBIDDEN)
         
     # ✅ Update last_login timestamp
     user.last_login = timezone.now()
@@ -428,7 +536,6 @@ def login(request):
         'access': str(refresh.access_token),
         'message': 'Login successful!'
     }, status=status.HTTP_200_OK)
-
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -460,7 +567,6 @@ def user_reports(request):
         'reports': serializer.data
     })
 
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_report_detail(request, report_id):
@@ -472,7 +578,6 @@ def get_report_detail(request, report_id):
     except MedicalReport.DoesNotExist:
         return Response({'error': 'Report not found'}, status=404)
 
-
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def delete_report(request, report_id):
@@ -483,7 +588,6 @@ def delete_report(request, report_id):
         return Response({'message': 'Report deleted successfully!'})
     except MedicalReport.DoesNotExist:
         return Response({'error': 'Report not found'}, status=404)
-
 
 # ============ REPORT TREND VIEWS ============
 
@@ -528,7 +632,6 @@ def report_trend(request):
         'data': trend_data,
         'count': len(trend_data),
     })
-
 
 # ============ PATIENT INFO EXTRACTION (HYBRID) ============
 
@@ -1531,3 +1634,145 @@ def view_shared_report(request, token):
         } if report.user else None,
     })
 
+# ============ EMAIL AVAILABILITY CHECK (for register form) ============
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def check_email_availability(request):
+    """
+    Quick check used by the register form to show real-time feedback.
+    Returns: { valid: bool, available: bool, message: str }
+    """
+    email = (request.GET.get('email') or '').strip().lower()
+
+    if not email:
+        return Response({
+            'valid': False,
+            'available': False,
+            'message': 'Email is required.'
+        }, status=200)
+
+    if not is_valid_email_format(email):
+        return Response({
+            'valid': False,
+            'available': False,
+            'message': 'Please enter a valid email address.'
+        }, status=200)
+
+    exists = User.objects.filter(email__iexact=email).exists()
+
+    if exists:
+        return Response({
+            'valid': True,
+            'available': False,
+            'message': 'This email is already registered. Try logging in instead.'
+        }, status=200)
+
+    return Response({
+        'valid': True,
+        'available': True,
+        'message': 'Email is available.'
+    }, status=200)
+    
+# ============ EMAIL VERIFICATION VIEWS ============
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def verify_email(request):
+    """
+    Verify a user's email with the 6-digit code.
+    On success: activate the user + return JWT tokens.
+    """
+    email = (request.data.get('email') or '').strip().lower()
+    code = (request.data.get('code') or '').strip()
+
+    if not email or not code:
+        return Response({'error': 'Email and code are required.'}, status=400)
+
+    try:
+        user = User.objects.get(email__iexact=email)
+    except User.DoesNotExist:
+        return Response({'error': 'No account found for this email.'}, status=404)
+
+    if user.is_active:
+        return Response({'error': 'This account is already verified. Please log in.'}, status=400)
+
+    try:
+        verification = user.email_verification
+    except EmailVerification.DoesNotExist:
+        return Response({'error': 'No verification pending. Please register again.'}, status=400)
+
+    if verification.is_expired():
+        return Response({'error': 'Code expired. Please request a new one.'}, status=400)
+
+    if verification.attempts >= 5:
+        return Response({'error': 'Too many attempts. Please request a new code.'}, status=429)
+
+    if verification.code != code:
+        verification.attempts += 1
+        verification.save(update_fields=['attempts'])
+        remaining = 5 - verification.attempts
+        return Response({
+            'error': f'Invalid code. {remaining} attempt(s) left.'
+        }, status=400)
+
+    # ✅ Success
+    user.is_active = True
+    user.save(update_fields=['is_active'])
+    verification.delete()
+
+    refresh = RefreshToken.for_user(user)
+    return Response({
+        'message': 'Email verified! You are now logged in.',
+        'user': {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+        },
+        'refresh': str(refresh),
+        'access': str(refresh.access_token),
+    }, status=200)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def resend_verification_code(request):
+    """Resend the 6-digit code (max 3 requests per 15 min per user)."""
+    email = (request.data.get('email') or '').strip().lower()
+    if not email:
+        return Response({'error': 'Email is required.'}, status=400)
+
+    try:
+        user = User.objects.get(email__iexact=email)
+    except User.DoesNotExist:
+        return Response({'error': 'No account found for this email.'}, status=404)
+
+    if user.is_active:
+        return Response({'error': 'This account is already verified.'}, status=400)
+
+    # Rate limit: only resend if last code is more than 60s old
+    try:
+        verification = user.email_verification
+        if (timezone.now() - verification.created_at).total_seconds() < 60:
+            return Response({
+                'error': 'Please wait at least a minute before requesting a new code.'
+            }, status=429)
+    except EmailVerification.DoesNotExist:
+        pass
+
+    code = f"{random.randint(0, 999999):06d}"
+    expires_at = timezone.now() + timedelta(minutes=15)
+
+    EmailVerification.objects.update_or_create(
+        user=user,
+        defaults={'code': code, 'expires_at': expires_at, 'attempts': 0},
+    )
+
+    sent = send_verification_email(user, code)
+    return Response({
+        'message': 'New code sent! Check your inbox.',
+        'email_sent': sent,
+    }, status=200)
+    
