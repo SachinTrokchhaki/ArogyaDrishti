@@ -24,6 +24,8 @@ urlpatterns = [
     path('reports/<int:report_id>/delete/', views.delete_report, name='delete_report'),
     path('reports/<int:report_id>/export/csv/', views.export_report_csv, name='export_report_csv'),
     path('reports/<int:report_id>/export/pdf/', views.export_report_pdf, name='export_report_pdf'),
+    # ✅ NEW: Shared report view
+    path('reports/share/<uuid:token>/', views.view_shared_report, name='view_shared_report'),
 
     # ============ AI ASSISTANT Q&A ============
     path('reports/<int:report_id>/ask/', views.ask_report_question, name='ask_report_question'),

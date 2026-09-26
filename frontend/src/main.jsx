@@ -21,6 +21,7 @@ import AdminUsers from './pages/admin/AdminUsers';
 import AdminUserDetail from './pages/admin/AdminUserDetail';
 import AdminReports from './pages/admin/AdminReports';
 import AdminReportDetail from './pages/admin/AdminReportDetail';
+import SharedReport from './pages/SharedReport';
 import './index.css';
 import './styles/auth.css';
 
@@ -40,6 +41,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/analyze" element={<ReportAnalysis />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            {/*NEW: Public shared report page — no login required */}
+            <Route path="/share/:token" element={<SharedReport />} />
 
             {/* User Dashboard */}
             <Route path="/dashboard" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>

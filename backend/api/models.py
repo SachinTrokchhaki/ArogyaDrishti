@@ -2,7 +2,7 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-
+import uuid
 
 class UserProfile(models.Model):
     """Extended user profile with avatar and additional info"""
@@ -34,23 +34,33 @@ class MedicalReport(models.Model):
         null=True,
         blank=True
     )
+        
     file = models.FileField(upload_to='reports/%Y/%m/%d/', null=True, blank=True)
     file_name = models.CharField(max_length=255)
     file_size = models.IntegerField()
     extracted_text = models.TextField(blank=True)
     processed_data = models.JSONField(default=dict, blank=True)
     
-    # ===== NEW FIELDS - Store AI analysis data =====
+    # =====Store AI analysis data =====
     ai_explanation = models.JSONField(default=dict, blank=True)
     medications = models.JSONField(default=list, blank=True)
     follow_up = models.JSONField(default=list, blank=True)
     confidence = models.JSONField(default=dict, blank=True)
-    # ==============================================
+    
+    # NEW: Share token for email notifications
+    share_token = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        null=True,
+        blank=True
+    )
     
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.file_name} - {self.user.username if self.user else 'Unknown'} - {self.created_at.strftime('%Y-%m-%d')}"
+
 
 
 # Automatically create UserProfile when a User is created

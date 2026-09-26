@@ -7,6 +7,12 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
+from django.core.mail import send_mail
+from django.conf import settings
+from django.template.loader import render_to_string
+from django.utils.html import strip_tags
+import uuid
+
 from .utils.ai_explainer import AIExplainer
 from .utils.classifier import classify_document
 from .utils.security import validate_upload, scan_for_malware
@@ -38,9 +44,166 @@ from reportlab.platypus import (
 from reportlab.lib.enums import TA_LEFT, TA_CENTER
 
 
-# ============================================================
+# ============ EMAIL NOTIFICATION HELPER ============
+
+def send_report_ready_email(user, report):
+    """
+    Send an HTML email to the user with a link to view their report.
+    """
+    try:
+        # Build share link
+        share_url = f"{settings.FRONTEND_URL}/share/{report.share_token}"
+        
+        # Get summary stats
+        processed = report.processed_data or {}
+        summary = processed.get('summary', {})
+        
+        total = summary.get('total_tests', 0)
+        normal = summary.get('normal', 0)
+        high = summary.get('high', 0)
+        low = summary.get('low', 0)
+        
+        # Display name
+        display_name = (
+            user.get_full_name().strip()
+            or user.first_name.strip()
+            or user.username
+        )
+        
+        # Report date
+        report_date = report.created_at.strftime('%d %b %Y, %I:%M %p')
+        
+        # ---------- HTML EMAIL ----------
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="margin:0; padding:0; background-color:#f0fdfa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f0fdfa; padding: 40px 20px;">
+                <tr>
+                    <td align="center">
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px; background-color:#ffffff; border-radius:16px; overflow:hidden; box-shadow: 0 4px 20px rgba(13,92,99,0.08);">
+                            
+                            <!-- HEADER -->
+                            <tr>
+                                <td style="background: linear-gradient(135deg, #0d5c63, #0a464b); padding: 32px 40px; text-align: left;">
+                                    <div style="display:inline-flex; align-items:center; gap:10px;">
+                                        <span style="display:inline-block; width:44px; height:44px; background:#ffffff; color:#0d5c63; border-radius:50%; text-align:center; line-height:44px; font-size:22px; font-weight:bold;">♥</span>
+                                        <span style="color:#ffffff; font-size:22px; font-weight:700; margin-left:10px;">Arogya<span style="color:#5eead4;">Drishti</span></span>
+                                    </div>
+                                    <p style="color:#a7d8d5; font-size:11px; margin: 6px 0 0 54px; letter-spacing:1.5px; text-transform:uppercase;">REPORT ANALYSIS</p>
+                                </td>
+                            </tr>
+                            
+                            <!-- BODY -->
+                            <tr>
+                                <td style="padding: 40px;">
+                                    <h1 style="color:#0f172a; font-size:22px; margin: 0 0 8px 0; font-weight:700;">
+                                        Hi {display_name} 👋
+                                    </h1>
+                                    <p style="color:#475569; font-size:15px; line-height:1.6; margin: 0 0 24px 0;">
+                                        Great news! Your medical report has been analyzed and is ready to view.
+                                    </p>
+                                    
+                                    <!-- REPORT CARD -->
+                                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f0fdfa; border:1px solid #ccfbf1; border-radius:12px; margin-bottom:24px;">
+                                        <tr>
+                                            <td style="padding: 20px;">
+                                                <p style="color:#0d5c63; font-size:12px; font-weight:700; letter-spacing:1px; margin: 0 0 8px 0; text-transform:uppercase;">📄 REPORT</p>
+                                                <p style="color:#0f172a; font-size:16px; font-weight:600; margin: 0 0 16px 0;">{report.file_name}</p>
+                                                
+                                                <p style="color:#64748b; font-size:12px; font-weight:700; letter-spacing:1px; margin: 0 0 8px 0; text-transform:uppercase;">📊 SUMMARY</p>
+                                                <p style="color:#0f172a; font-size:14px; margin: 0 0 4px 0;">
+                                                    <strong>{total}</strong> tests · 
+                                                    <span style="color:#16a34a;"><strong>{normal}</strong> normal</span> · 
+                                                    <span style="color:#d97706;"><strong>{low}</strong> low</span> · 
+                                                    <span style="color:#dc2626;"><strong>{high}</strong> high</span>
+                                                </p>
+                                                
+                                                <p style="color:#94a3b8; font-size:12px; margin: 12px 0 0 0;">🕐 Analyzed on {report_date}</p>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                    
+                                    <!-- CTA BUTTON -->
+                                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                                        <tr>
+                                            <td align="center" style="padding: 8px 0 24px 0;">
+                                                <a href="{share_url}" style="display:inline-block; background:#0d5c63; color:#ffffff; text-decoration:none; padding: 14px 32px; border-radius:10px; font-size:15px; font-weight:600; box-shadow: 0 4px 12px rgba(13,92,99,0.25);">
+                                                    📊 View Full Report →
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                    
+                                    <!-- FALLBACK LINK -->
+                                    <p style="color:#94a3b8; font-size:12px; margin: 0; text-align:center;">Or copy this link:</p>
+                                    <p style="color:#0d5c63; font-size:12px; margin: 6px 0 0 0; text-align:center; word-break: break-all;">
+                                        <a href="{share_url}" style="color:#0d5c63;">{share_url}</a>
+                                    </p>
+                                </td>
+                            </tr>
+                            
+                            <!-- DISCLAIMER -->
+                            <tr>
+                                <td style="background:#fffbeb; padding: 20px 40px; border-top:1px solid #fde68a;">
+                                    <p style="color:#78350f; font-size:12px; margin: 0; line-height:1.6;">
+                                        ⚠️ <strong>Disclaimer:</strong> This is educational information, not a medical diagnosis. Always consult a qualified doctor for medical advice.
+                                    </p>
+                                </td>
+                            </tr>
+                            
+                            <!-- FOOTER -->
+                            <tr>
+                                <td style="background:#f8fafc; padding: 20px 40px; text-align:center; border-top:1px solid #e2e8f0;">
+                                    <p style="color:#94a3b8; font-size:11px; margin: 0;">© {report.created_at.year} ArogyaDrishti · Report Analysis</p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </body>
+        </html>
+        """
+        
+        # Plain text fallback
+        plain_content = f"""
+Hi {display_name},
+
+Your medical report "{report.file_name}" has been analyzed and is ready to view.
+
+Summary: {total} tests, {normal} normal, {low} low, {high} high
+Analyzed on: {report_date}
+
+View your report: {share_url}
+
+Note: This is educational information, not a medical diagnosis. Consult a doctor for medical advice.
+
+- ArogyaDrishti Team
+        """.strip()
+        
+        # Send email
+        send_mail(
+            subject=f"✅ Your report is ready: {report.file_name}",
+            message=plain_content,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            html_message=html_content,
+            fail_silently=False,  # Set True later if you don't want errors to break upload
+        )
+        
+        print(f"✅ Email sent to {user.email}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Email failed for {user.email}: {e}")
+        return False
+
 # ============ USER PROFILE VIEWS ============
-# ============================================================
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -284,10 +447,7 @@ def logout(request):
             'error': str(e)
         }, status=status.HTTP_400_BAD_REQUEST)
 
-
-# ============================================================
 # ============ REPORTS VIEWS ============
-# ============================================================
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -325,9 +485,7 @@ def delete_report(request, report_id):
         return Response({'error': 'Report not found'}, status=404)
 
 
-# ============================================================
 # ============ REPORT TREND VIEWS ============
-# ============================================================
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -372,9 +530,7 @@ def report_trend(request):
     })
 
 
-# ============================================================
 # ============ PATIENT INFO EXTRACTION (HYBRID) ============
-# ============================================================
 
 def extract_patient_info_regex(text):
     """
@@ -436,7 +592,6 @@ def extract_patient_info_regex(text):
         )
     
     # ===== NAME EXTRACTION =====
-    # Try 3-word names first, then 2-word
     name_patterns = [
         # 3-word name after "Patient Name:" or "Patient:"
         r'patient\s*(?:name)?\s*[:.\-]?\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){2})',
@@ -595,7 +750,6 @@ JSON:"""
     
     return {'name': 'Unknown', 'age': 'Unknown', 'gender': 'Unknown'}
 
-
 def extract_patient_info(text):
     """
     Hybrid patient extraction:
@@ -625,9 +779,7 @@ def extract_patient_info(text):
     return info
 
 
-# ============================================================
 # ============ HELPER FUNCTIONS ============
-# ============================================================
 
 def generate_medications(results):
     """Generate medications based on test results"""
@@ -694,7 +846,6 @@ def generate_medications(results):
     
     return medications
 
-
 def generate_follow_up(results):
     """Generate follow-up recommendations based on results"""
     follow_up = []
@@ -738,7 +889,6 @@ def generate_follow_up(results):
     
     return follow_up
 
-
 def generate_confidence(results, extracted_text):
     """Generate confidence scores based on extraction quality"""
     confidence = {
@@ -768,11 +918,7 @@ def generate_confidence(results, extracted_text):
     
     return confidence
 
-
-# ============================================================
 # ============ REPORT ANALYSIS VIEWS ============
-# ============================================================
-
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def health_check(request):
@@ -782,7 +928,6 @@ def health_check(request):
         'message': 'ArogyaDrishti API is running!',
         'version': '1.0.0'
     })
-
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -883,7 +1028,10 @@ def upload_report(request):
             confidence=confidence,
             user=request.user
         )
-        
+        # NEW: Send email notification to the user
+        if request.user.email:
+            send_report_ready_email(request.user, report)
+            
         # 13. Return full response
         response_data = {
             'id': report.id,
@@ -908,11 +1056,7 @@ def upload_report(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
-
-# ============================================================
 # ============ REPORT EXPORT VIEWS ============
-# ============================================================
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def export_report_csv(request, report_id):
@@ -971,7 +1115,6 @@ def export_report_csv(request, report_id):
         writer.writerow([explanation])
     
     return response
-
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -1224,11 +1367,7 @@ def export_report_pdf(request, report_id):
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
 
-
-# ============================================================
 # ============ AI ASSISTANT Q&A VIEWS ============
-# ============================================================
-
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def ask_report_question(request, report_id):
@@ -1341,7 +1480,6 @@ def get_report_chat_history(request, report_id):
         'messages': serializer.data,
     })
 
-
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def clear_report_chat(request, report_id):
@@ -1360,3 +1498,36 @@ def clear_report_chat(request, report_id):
         'message': f'Cleared {deleted_count} messages',
         'deleted': deleted_count,
     })
+
+# ============ SHARED REPORT VIEW (PUBLIC) ============
+@api_view(['GET'])
+@permission_classes([AllowAny])  # ← Public, no login needed
+def view_shared_report(request, token):
+    """
+    View a report via its share token.
+    No authentication required — anyone with the token can view.
+    """
+    try:
+        report = MedicalReport.objects.get(share_token=token)
+    except MedicalReport.DoesNotExist:
+        return Response({'error': 'Report not found or link expired'}, status=404)
+    
+    processed = report.processed_data or {}
+    patient_info = processed.get('patient_info', {})
+    
+    return Response({
+        'id': report.id,
+        'file_name': report.file_name,
+        'file_size': report.file_size,
+        'created_at': report.created_at,
+        'processed_data': processed,
+        'medications': report.medications or [],
+        'follow_up': report.follow_up or [],
+        'confidence': report.confidence or {},
+        'ai_explanation': report.ai_explanation or {},
+        # Extra: show owner info in the shared view
+        'shared_by': {
+            'name': report.user.get_full_name() if report.user else 'User',
+        } if report.user else None,
+    })
+
